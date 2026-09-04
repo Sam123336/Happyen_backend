@@ -1,0 +1,11 @@
+.dart_tool/
+.git/
+build/
+coverage/
+dist/
+node_modules/
+pnpm-lock.yaml
+
+
+# Copy of the plan of record; kept byte-identical to the app repository's version.
+docs/architecture-proposal.md

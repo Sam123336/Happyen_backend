@@ -1,0 +1,22 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "pnpm build",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "functions": {
+    "api/index.js": { "maxDuration": 30 },
+    "api/cron/heartbeat.js": { "maxDuration": 60 }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/heartbeat",
+      "schedule": "0 3 * * *"
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/v1/:path*",
+      "destination": "/api"
+    }
+  ]
+}

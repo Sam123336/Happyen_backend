@@ -1,0 +1,25 @@
+name: happyn
+
+services:
+  postgres:
+    build:
+      context: infrastructure/docker/postgres
+    image: happyn-postgres:17-postgis3
+    environment:
+      POSTGRES_DB: happyn
+      POSTGRES_PASSWORD: happyn
+      POSTGRES_USER: happyn
+    ports:
+      - '${HAPPYN_POSTGRES_PORT:-55432}:5432'
+    volumes:
+      - happyn_postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U happyn -d happyn']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  happyn_postgres_data:
