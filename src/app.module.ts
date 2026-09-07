@@ -3,8 +3,10 @@ import { LoggerModule } from 'nestjs-pino';
 
 import { AuthModule } from './auth/auth.module.js';
 import { DatabaseModule } from './database/database.module.js';
+import { EventsModule } from './events/events.module.js';
 import { HealthController } from './health/health.controller.js';
 import { HealthService } from './health/health.service.js';
+import { PlacesModule } from './places/places.module.js';
 import { ProfileModule } from './profile/profile.module.js';
 import { UsersModule } from './users/users.module.js';
 
@@ -14,6 +16,8 @@ import { UsersModule } from './users/users.module.js';
     UsersModule,
     AuthModule,
     ProfileModule,
+    EventsModule,
+    PlacesModule,
     LoggerModule.forRoot({
       pinoHttp: {
         autoLogging: true,

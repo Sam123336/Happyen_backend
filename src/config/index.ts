@@ -18,6 +18,11 @@ const environmentSchema = z.object({
    */
   CRON_SECRET: z.string().min(1).optional(),
   FIREBASE_PROJECT_ID: z.string().min(1).optional(),
+  /**
+   * Foursquare Places service key. Legacy v3 API keys are rejected by
+   * places-api.foursquare.com; this must be a service key.
+   */
+  FOURSQUARE_API_KEY: z.string().min(1).optional(),
   HAPPYN_ENV: z
     .enum(['local', 'development', 'staging', 'production'])
     .default('local'),
