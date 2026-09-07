@@ -45,7 +45,9 @@ jobs:
       - run: pnpm db:migrate
         env:
           DATABASE_URL: postgresql://happyn:happyn@localhost:55432/happyn
-      - run: pnpm test -- user.repository.integration.test.ts
+      # Every integration test, not one named file: the list went stale as
+      # soon as a second repository had one.
+      - run: pnpm test
         env:
           TEST_DATABASE_URL: postgresql://happyn:happyn@localhost:55432/happyn
       - if: always()
