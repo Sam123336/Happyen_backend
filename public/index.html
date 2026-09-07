@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Happyen API</title>
+<!--
+  This directory is the Vercel output directory. `pnpm build` compiles the API
+  to dist/, which is not static, so without a public/ Vercel fails the
+  deployment with "No Output Directory named public found after the Build
+  completed". Deleting this file breaks every deployment.
+
+  The API itself is served by api/index.js; vercel.json rewrites /v1/* to it.
+-->
+<h1>Happyen API</h1>
+<p>The API is served under <a href="/v1/health/live">/v1</a>.</p>
