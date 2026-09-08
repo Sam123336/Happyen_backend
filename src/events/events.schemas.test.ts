@@ -10,6 +10,7 @@ describe('nearbyQuerySchema', () => {
 
     expect(parsed.radius_m).toBe(5_000);
     expect(parsed.limit).toBe(50);
+    expect(parsed.include_live).toBe(true);
     expect(parsed.starts_after).toBeUndefined();
   });
 
@@ -48,5 +49,12 @@ describe('nearbyQuerySchema', () => {
     expect(() =>
       nearbyQuerySchema.parse({ ...bengaluru, bbox: '1,2,3,4' }),
     ).toThrow();
+  });
+
+  it('can exclude already-live occurrences for a future-only view', () => {
+    expect(
+      nearbyQuerySchema.parse({ ...bengaluru, include_live: 'false' })
+        .include_live,
+    ).toBe(false);
   });
 });

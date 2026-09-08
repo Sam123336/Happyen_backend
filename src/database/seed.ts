@@ -10,7 +10,8 @@ import type { EventCategory } from '../events/event.types.js';
 /**
  * Demonstration data, not a listing feed. The venues below are invented names
  * at real Bengaluru coordinates so the map has pins to draw before any real
- * inventory exists. Nothing here describes an event that is actually happening.
+ * inventory exists. They are local-only fixtures, including one deliberately
+ * ongoing occurrence so the Living City can exercise its live treatment.
  */
 loadEnvironment({ path: new URL('../../.env', import.meta.url) });
 
@@ -29,6 +30,7 @@ interface Sample {
   latitude: number;
   longitude: number;
   occurrenceId: string;
+  durationInHours?: number;
   startsInHours: number;
   title: string;
   venueId: string;
@@ -36,6 +38,18 @@ interface Sample {
 }
 
 const samples: Sample[] = [
+  {
+    category: 'music',
+    durationInHours: 3,
+    eventId: '11111111-1111-4111-8111-000000000006',
+    latitude: 12.9639,
+    longitude: 77.6381,
+    occurrenceId: '22222222-2222-4222-8222-000000000006',
+    startsInHours: -1,
+    title: 'Rooftop Sessions: Live',
+    venueId: '33333333-3333-4333-8333-000000000006',
+    venueName: 'Skyline Social',
+  },
   {
     category: 'comedy',
     eventId: '11111111-1111-4111-8111-000000000001',
@@ -140,7 +154,9 @@ try {
     await database
       .insert(eventOccurrences)
       .values({
-        endAt: new Date(startAt.getTime() + 3 * hour),
+        endAt: new Date(
+          startAt.getTime() + (sample.durationInHours ?? 3) * hour,
+        ),
         eventId: sample.eventId,
         id: sample.occurrenceId,
         location,
@@ -151,7 +167,9 @@ try {
       })
       .onConflictDoUpdate({
         set: {
-          endAt: new Date(startAt.getTime() + 3 * hour),
+          endAt: new Date(
+            startAt.getTime() + (sample.durationInHours ?? 3) * hour,
+          ),
           location,
           startAt,
           status: 'published',

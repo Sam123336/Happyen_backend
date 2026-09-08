@@ -21,6 +21,7 @@ export class EventsController {
   ): Promise<EventPin[]> {
     return this.events.nearby({
       ...(query.category === undefined ? {} : { category: query.category }),
+      includeLive: query.include_live,
       latitude: query.lat,
       limit: query.limit,
       longitude: query.lng,

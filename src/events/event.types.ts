@@ -9,6 +9,8 @@ export interface EventPin {
   eventId: string;
   heroImageUrl: string | null;
   id: string;
+  /** True when the occurrence has started and has not ended yet. */
+  isLive: boolean;
   latitude: number;
   longitude: number;
   startAt: Date;
@@ -18,6 +20,8 @@ export interface EventPin {
 
 export interface NearbySearch {
   category?: EventCategory;
+  /** Include active occurrences alongside future ones. Defaults to true. */
+  includeLive?: boolean;
   latitude: number;
   limit: number;
   longitude: number;

@@ -19,6 +19,7 @@ const farAway = { latitude: 13.0827, longitude: 77.5877 };
 const eventId = '44444444-4444-4444-8444-000000000001';
 const nearId = '55555555-5555-4555-8555-000000000001';
 const farId = '55555555-5555-4555-8555-000000000002';
+const liveId = '55555555-5555-4555-8555-000000000003';
 const venueId = '66666666-6666-4666-8666-000000000001';
 
 describeWithDatabase('EventRepository integration', () => {
@@ -60,6 +61,16 @@ describeWithDatabase('EventRepository integration', () => {
         status: 'published',
         venueName: 'Far Venue',
       },
+      {
+        endAt: new Date(Date.now() + 60 * 60 * 1000),
+        eventId,
+        id: liveId,
+        location: point(origin),
+        startAt: new Date(Date.now() - 60 * 60 * 1000),
+        status: 'published',
+        venueId,
+        venueName: 'Live Venue',
+      },
     ]);
   });
 
@@ -83,6 +94,7 @@ describeWithDatabase('EventRepository integration', () => {
     expect(pin?.longitude).toBeCloseTo(origin.longitude, 5);
     expect(pin?.distanceMeters).toBeLessThan(1);
     expect(pin?.venueName).toBe('Test Venue');
+    expect(pin?.isLive).toBe(false);
   });
 
   it('excludes an occurrence outside the radius', async () => {
@@ -120,5 +132,30 @@ describeWithDatabase('EventRepository integration', () => {
     });
 
     expect(pins).toEqual([]);
+  });
+
+  it('keeps an ongoing occurrence on the live map', async () => {
+    const pins = await repository.nearby({
+      latitude: origin.latitude,
+      limit: 10,
+      longitude: origin.longitude,
+      radiusMeters: 2_000,
+      startsAfter: new Date(),
+    });
+
+    expect(pins.find((pin) => pin.id === liveId)?.isLive).toBe(true);
+  });
+
+  it('can render a future-only time window without live occurrences', async () => {
+    const pins = await repository.nearby({
+      includeLive: false,
+      latitude: origin.latitude,
+      limit: 10,
+      longitude: origin.longitude,
+      radiusMeters: 2_000,
+      startsAfter: new Date(),
+    });
+
+    expect(pins.map((pin) => pin.id)).not.toContain(liveId);
   });
 });

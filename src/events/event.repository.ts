@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, gt, isNull, lte, or, sql } from 'drizzle-orm';
 
 import { DatabaseService } from '../database/database.service.js';
 import { eventOccurrences, events } from '../database/schema/index.js';
@@ -19,6 +19,28 @@ export class EventRepository {
    */
   public nearby(search: NearbySearch): Promise<EventPin[]> {
     const origin = sql`ST_SetSRID(ST_MakePoint(${search.longitude}, ${search.latitude}), 4326)::geography`;
+    // Use one timestamp for both the live projection and the predicate. That
+    // makes a response internally consistent if an event crosses its start or
+    // end boundary while Postgres is evaluating the query.
+    const now = new Date();
+    const activeOccurrence = and(
+      lte(eventOccurrences.startAt, now),
+      or(isNull(eventOccurrences.endAt), gt(eventOccurrences.endAt, now)),
+    );
+    const upcomingOccurrence = and(
+      gte(eventOccurrences.startAt, search.startsAfter),
+      search.startsBefore === undefined
+        ? undefined
+        : lte(eventOccurrences.startAt, search.startsBefore),
+    );
+
+    // A city map is useful while an event is underway as well as before it
+    // starts. Callers that are rendering a future-only time window can opt
+    // out of the live branch with includeLive=false.
+    const timeWindow =
+      (search.includeLive ?? true)
+        ? or(activeOccurrence, upcomingOccurrence)
+        : upcomingOccurrence;
 
     return this.database.client
       .select({
@@ -31,6 +53,7 @@ export class EventRepository {
         eventId: events.id,
         heroImageUrl: events.heroImageUrl,
         id: eventOccurrences.id,
+        isLive: sql<boolean>`(${eventOccurrences.startAt} <= ${now} AND (${eventOccurrences.endAt} IS NULL OR ${eventOccurrences.endAt} > ${now}))`,
         latitude:
           sql<number>`ST_Y(${eventOccurrences.location}::geometry)`.mapWith(
             Number,
@@ -50,10 +73,7 @@ export class EventRepository {
           eq(eventOccurrences.status, 'published'),
           eq(events.status, 'published'),
           sql`ST_DWithin(${eventOccurrences.location}, ${origin}, ${search.radiusMeters})`,
-          gte(eventOccurrences.startAt, search.startsAfter),
-          search.startsBefore === undefined
-            ? undefined
-            : lte(eventOccurrences.startAt, search.startsBefore),
+          timeWindow,
           search.category === undefined
             ? undefined
             : eq(events.category, search.category),

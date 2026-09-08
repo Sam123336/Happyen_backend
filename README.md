@@ -21,8 +21,9 @@ header at the top of that file says how.
 4. `pnpm db:migrate`
 5. `pnpm db:seed` for demonstration events, so the map has pins before any real
    inventory exists. The venues are invented names at real Bengaluru
-   coordinates; nothing in it describes an event that is happening. It refuses
-   to run when `HAPPYN_ENV` is `production`.
+   coordinates; one local-only fixture is deliberately ongoing to exercise the
+   mobile live-map treatment. It refuses to run when `HAPPYN_ENV` is
+   `production`.
 6. `pnpm dev`
 7. Check `http://localhost:3000/v1/health/ready`.
 

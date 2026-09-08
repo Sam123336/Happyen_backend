@@ -11,6 +11,14 @@ export const nearbyQuerySchema = z
     lat: z.coerce.number().min(-90).max(90),
     limit: z.coerce.number().int().min(1).max(200).default(50),
     lng: z.coerce.number().min(-180).max(180),
+    /**
+     * Query strings arrive as text. Avoid z.coerce.boolean() here: it would
+     * turn the non-empty string "false" into true.
+     */
+    include_live: z
+      .enum(['true', 'false'])
+      .optional()
+      .transform((value) => value !== 'false'),
     radius_m: z.coerce
       .number()
       .int()
