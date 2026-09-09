@@ -39,10 +39,23 @@ const environmentSchema = z.object({
 
 export type Environment = z.infer<typeof environmentSchema>;
 
+/**
+ * An environment variable that is present but empty is not set. A `.env`
+ * template line, a Vercel variable left blank and an unset variable are the
+ * same intent, and an optional field must not refuse the whole boot over the
+ * difference — which is exactly what `SUPABASE_URL=` used to do.
+ */
+function omitBlank(input: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value?.trim() !== ''),
+  );
+}
+
 export function parseEnvironment(input: NodeJS.ProcessEnv): Environment {
+  const present = omitBlank(input);
   const result = environmentSchema.safeParse({
-    ...input,
-    DATABASE_URL: input.DATABASE_URL ?? input.DB_URL,
+    ...present,
+    DATABASE_URL: present.DATABASE_URL ?? present.DB_URL,
   });
 
   if (!result.success) {

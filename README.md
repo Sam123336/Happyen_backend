@@ -77,7 +77,7 @@ create extension if not exists unaccent;
    | `CRON_SECRET`         | A long random string                               |
    | `HAPPYN_ENV`          | `production`                                       |
    | `LOG_LEVEL`           | `info`                                             |
-   | `FIREBASE_PROJECT_ID` | Your Firebase project, for auth token verification |
+   | `SUPABASE_URL`        | Your Supabase project URL, for token verification  |
 
 4. Add `SUPABASE_DIRECT_URL` as a GitHub Actions secret so the `migrate` job can
    advance the schema on pushes to `main`. Until it is set, that job is skipped.
@@ -110,8 +110,39 @@ timing jitter, and a more frequent expression fails at deploy time. That is why
 `heartbeat` is scheduled at `0 3 * * *`. Pro and Enterprise allow once per
 minute with per-minute precision.
 
+## Authentication
+
+People sign in with a phone number and a one-time code. Supabase Auth owns that
+credential and nothing else: `src/auth/supabase-token.verifier.ts` checks the
+access token, and the account it belongs to — profile, username, privacy — lives
+in this database, in `users`, `user_identities`, `profiles` and
+`privacy_settings`.
+
+Verification uses the project's **JWKS**, not its JWT secret, so this service
+holds no key that could mint a token; it can only check one. `SUPABASE_URL` is
+therefore the root of trust for every authenticated request, and a token from
+any other project fails the issuer check. Key rotation needs no deploy —
+`jose` re-fetches the key set on an unknown `kid`.
+
+The flow is:
+
+1. The app calls Supabase directly to request and verify the code.
+2. With a session in hand it calls `POST /v1/auth/session`, which provisions the
+   internal user on first sight and is idempotent afterwards.
+3. A new account has `username: null`, which is how the app knows to ask for one.
+   `GET /v1/me/username-available` drives the hint while typing, and
+   `PATCH /v1/me/profile` claims it. The claim, not the check, is authoritative:
+   the `profiles_username_lower_uq` index decides, and a loser gets `409
+   username_taken` rather than a 500.
+
+Swapping identity providers again means replacing the verifier and the
+`ExternalIdentity.issuer` literal; everything downstream of `AuthTokenVerifier`
+is unaware of who issued the token. That is what made the move off Firebase a
+one-file change here.
+
 ## What is not here
 
-Auth still verifies Firebase ID tokens through `firebase-admin`. Supabase is the
-database only. Moving to Supabase Auth would replace `src/auth/firebase-token.verifier.ts`
-and nothing else, because verification sits behind the `AuthTokenVerifier` port.
+SMS delivery. Supabase sends the codes, and it needs an SMS provider configured
+in the project (Twilio, MessageBird, Vonage, TextLocal, or any other through the
+Send SMS hook). Indian numbers additionally need DLT registration with TRAI
+before transactional SMS is delivered at all.

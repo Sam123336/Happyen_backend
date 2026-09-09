@@ -16,7 +16,7 @@ const identity = {
   email: 'person@example.com',
   emailVerified: true,
   issuer: 'supabase' as const,
-  subject: 'firebase-user-1',
+  subject: 'supabase-user-1',
 };
 
 const activeUser: UserProfileView = {

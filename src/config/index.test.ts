@@ -32,4 +32,31 @@ describe('parseEnvironment', () => {
       }).DATABASE_URL,
     ).toBe('postgresql://localhost/happyn');
   });
+
+  it('treats a blank optional variable as unset', () => {
+    // A `.env` template line or an empty Vercel variable must not fail the
+    // boot: SUPABASE_URL= is not a malformed URL, it is an absent one.
+    expect(
+      parseEnvironment({
+        DATABASE_URL: 'postgresql://localhost/happyn',
+        SUPABASE_URL: '',
+      }),
+    ).not.toHaveProperty('SUPABASE_URL');
+
+    expect(
+      parseEnvironment({
+        DATABASE_URL: 'postgresql://localhost/happyn',
+        SUPABASE_URL: 'https://abc.supabase.co',
+      }).SUPABASE_URL,
+    ).toBe('https://abc.supabase.co');
+  });
+
+  it('still rejects a malformed Supabase URL', () => {
+    expect(() =>
+      parseEnvironment({
+        DATABASE_URL: 'postgresql://localhost/happyn',
+        SUPABASE_URL: 'not-a-url',
+      }),
+    ).toThrow('Invalid environment configuration');
+  });
 });
