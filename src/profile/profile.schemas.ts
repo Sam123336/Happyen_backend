@@ -2,6 +2,15 @@ import { z } from 'zod';
 
 const privacyAudience = z.enum(['nobody', 'friends', 'everyone']);
 
+/** Mirrors the `profiles_username_format_ck` constraint. */
+export const usernameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9_]{3,30}$/);
+
+export const usernameQuerySchema = z.object({ username: usernameSchema });
+
 export const updateProfileSchema = z
   .object({
     bio: z.string().trim().max(300).nullable().optional(),

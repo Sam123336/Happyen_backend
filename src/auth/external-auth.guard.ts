@@ -28,7 +28,7 @@ export class ExternalAuthGuard implements CanActivate {
     if (match?.[1] === undefined) {
       throw new UnauthorizedException({
         code: 'missing_bearer_token',
-        message: 'A Firebase ID token is required',
+        message: 'An access token is required',
       });
     }
 

@@ -17,7 +17,12 @@ const environmentSchema = z.object({
    * so cron endpoints cannot be triggered by anyone with the URL.
    */
   CRON_SECRET: z.string().min(1).optional(),
-  FIREBASE_PROJECT_ID: z.string().min(1).optional(),
+  /**
+   * Supabase project URL, e.g. https://abcdefgh.supabase.co. Access tokens are
+   * verified against this project's JWKS, so it is the root of trust for every
+   * authenticated request; a wrong value must fail closed rather than guess.
+   */
+  SUPABASE_URL: z.string().url().optional(),
   /**
    * Foursquare Places service key. Legacy v3 API keys are rejected by
    * places-api.foursquare.com; this must be a service key.
