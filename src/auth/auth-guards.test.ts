@@ -15,7 +15,7 @@ import { ProvisionedUserGuard } from './provisioned-user.guard.js';
 const identity = {
   email: 'person@example.com',
   emailVerified: true,
-  issuer: 'firebase' as const,
+  issuer: 'supabase' as const,
   subject: 'firebase-user-1',
 };
 

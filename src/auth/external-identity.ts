@@ -3,7 +3,7 @@ export interface ExternalIdentity {
   displayName?: string;
   email?: string;
   emailVerified: boolean;
-  issuer: 'firebase';
+  issuer: 'supabase';
   phoneE164?: string;
   signInProvider?: string;
   subject: string;

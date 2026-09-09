@@ -5,7 +5,7 @@ import { UsersModule } from '../users/users.module.js';
 import { AuthSessionController } from './auth-session.controller.js';
 import { AUTH_TOKEN_VERIFIER } from './auth-token-verifier.js';
 import { ExternalAuthGuard } from './external-auth.guard.js';
-import { FirebaseTokenVerifier } from './firebase-token.verifier.js';
+import { SupabaseTokenVerifier } from './supabase-token.verifier.js';
 import { ProvisionedUserGuard } from './provisioned-user.guard.js';
 
 @Module({
@@ -15,13 +15,20 @@ import { ProvisionedUserGuard } from './provisioned-user.guard.js';
     {
       provide: AUTH_TOKEN_VERIFIER,
       useFactory: () =>
-        new FirebaseTokenVerifier(
-          parseEnvironment(process.env).FIREBASE_PROJECT_ID,
-        ),
+        new SupabaseTokenVerifier(parseEnvironment(process.env).SUPABASE_URL),
     },
     ExternalAuthGuard,
     ProvisionedUserGuard,
   ],
-  exports: [AUTH_TOKEN_VERIFIER, ExternalAuthGuard, ProvisionedUserGuard],
+  // A guard named in @UseGuards is instantiated in the module hosting the
+  // controller, so its own dependencies must resolve there. Re-exporting
+  // UsersModule gives every AuthModule importer the UserRepository that
+  // ProvisionedUserGuard needs, rather than each one importing it again.
+  exports: [
+    AUTH_TOKEN_VERIFIER,
+    ExternalAuthGuard,
+    ProvisionedUserGuard,
+    UsersModule,
+  ],
 })
 export class AuthModule {}

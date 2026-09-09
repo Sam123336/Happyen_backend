@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { ConflictException, Injectable } from '@nestjs/common';
+import { and, eq, sql } from 'drizzle-orm';
 
 import type { ExternalIdentity } from '../auth/external-identity.js';
 import { DatabaseService } from '../database/database.service.js';
@@ -93,6 +93,24 @@ export class UserRepository {
     }
   }
 
+  /**
+   * Whether [username] is free to claim. Case-insensitive, matching the
+   * `profiles_username_lower_uq` index, so `Sam` and `sam` are one name.
+   *
+   * This is advisory only: two people can pass this check for the same name in
+   * the same instant, which is why [updateProfile] still has to survive the
+   * unique violation rather than trusting the answer.
+   */
+  public async isUsernameAvailable(username: string): Promise<boolean> {
+    const [taken] = await this.database.client
+      .select({ userId: profiles.userId })
+      .from(profiles)
+      .where(sql`lower(${profiles.username}) = lower(${username})`)
+      .limit(1);
+
+    return taken === undefined;
+  }
+
   public async updateProfile(
     userId: string,
     input: UpdateProfileInput,
@@ -109,7 +127,19 @@ export class UserRepository {
           : {}),
         updatedAt: new Date(),
       })
-      .where(eq(profiles.userId, userId));
+      .where(eq(profiles.userId, userId))
+      .catch((error: unknown) => {
+        // Two people claiming one name race past isUsernameAvailable; the
+        // unique index is what actually decides, so report the loser honestly
+        // instead of letting a 23505 surface as an internal error.
+        if (this.isUniqueViolation(error)) {
+          throw new ConflictException({
+            code: 'username_taken',
+            message: 'That username is already taken',
+          });
+        }
+        throw error;
+      });
 
     return this.findByUserId(userId);
   }

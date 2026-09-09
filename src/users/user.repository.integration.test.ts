@@ -37,7 +37,7 @@ describeWithDatabase('UserRepository integration', () => {
       displayName: 'City Explorer',
       email: `test-${randomUUID()}@example.com`,
       emailVerified: true,
-      issuer: 'firebase' as const,
+      issuer: 'supabase' as const,
       signInProvider: 'google.com',
       subject: randomUUID(),
     };
