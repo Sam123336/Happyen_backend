@@ -5,7 +5,8 @@ can deploy independently to Vercel against Supabase Postgres. The Flutter client
 lives in the other repository and only knows this service by its HTTPS origin.
 
 - NestJS modular monolith on Express, served by a Vercel Function.
-- Drizzle ORM over Postgres, with PostGIS for the geospatial work.
+- Sequelize over Postgres, with PostGIS for the geospatial work; migrations are
+  written against Sequelize's `queryInterface` and run by Umzug.
 - Scheduled work runs as Vercel Cron Functions rather than a worker process.
 
 The full product and architecture plan is in
@@ -54,6 +55,23 @@ per container automatically when `VERCEL` is set.
 Migrations take locks and create types, which a transaction pooler cannot carry
 across statements, so they always use the direct connection on port 5432.
 
+## Migrations
+
+Schema changes are TypeScript files under `src/database/migrations/`, named
+`<timestamp>-<what>.ts`, each exporting `up` and `down` written with
+Sequelize's `queryInterface` (`createTable`, `addColumn`, `addIndex`,
+`addConstraint`). Umzug applies them in name order and records each in the
+`SequelizeMeta` table; `pnpm db:migrate` applies what is pending and
+`pnpm db:migrate:down` reverts the most recent one. The only raw SQL is
+`CREATE EXTENSION`, which Sequelize has no method for.
+
+The first two migrations are ports of the Drizzle-era ones. A database that
+Drizzle migrated already holds their tables, so `db:migrate` recognises the
+`drizzle.__drizzle_migrations` table and records those two as applied instead
+of re-running them; only newer migrations are executed there. Enum types on
+such a database keep their Drizzle-era names (`user_status`), while a fresh
+database gets Sequelize's (`enum_users_status`); no query depends on either.
+
 Enable the extensions once per Supabase project, matching
 `infrastructure/docker/postgres/init/001-extensions.sql`:
 
@@ -70,14 +88,14 @@ create extension if not exists unaccent;
    `vercel.json` supplies the build and routing.
 3. Set these environment variables on the project:
 
-   | Variable              | Value                                              |
-   | --------------------- | -------------------------------------------------- |
-   | `DATABASE_URL`        | Supabase pooler URL, port 6543                     |
-   | `DIRECT_URL`          | Supabase direct URL, port 5432                     |
-   | `CRON_SECRET`         | A long random string                               |
-   | `HAPPYN_ENV`          | `production`                                       |
-   | `LOG_LEVEL`           | `info`                                             |
-   | `SUPABASE_URL`        | Your Supabase project URL, for token verification  |
+   | Variable       | Value                                             |
+   | -------------- | ------------------------------------------------- |
+   | `DATABASE_URL` | Supabase pooler URL, port 6543                    |
+   | `DIRECT_URL`   | Supabase direct URL, port 5432                    |
+   | `CRON_SECRET`  | A long random string                              |
+   | `HAPPYN_ENV`   | `production`                                      |
+   | `LOG_LEVEL`    | `info`                                            |
+   | `SUPABASE_URL` | Your Supabase project URL, for token verification |
 
 4. Add `SUPABASE_DIRECT_URL` as a GitHub Actions secret so the `migrate` job can
    advance the schema on pushes to `main`. Until it is set, that job is skipped.
@@ -133,7 +151,7 @@ The flow is:
    `GET /v1/me/username-available` drives the hint while typing, and
    `PATCH /v1/me/profile` claims it. The claim, not the check, is authoritative:
    the `profiles_username_lower_uq` index decides, and a loser gets `409
-   username_taken` rather than a 500.
+username_taken` rather than a 500.
 
 Swapping identity providers again means replacing the verifier and the
 `ExternalIdentity.issuer` literal; everything downstream of `AuthTokenVerifier`

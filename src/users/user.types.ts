@@ -11,6 +11,10 @@ export interface UserProfileView {
   presenceVisibility: PrivacyAudience;
   profileVisibility: PrivacyAudience;
   status: 'active' | 'suspended' | 'deleted';
+  /** Days in a row the city was opened, ending on `streakLastActiveOn`. */
+  streakDays: number;
+  /** ISO calendar day (`YYYY-MM-DD`) of the last opening, phone-local. */
+  streakLastActiveOn: string | null;
   userId: string;
   username: string | null;
 }

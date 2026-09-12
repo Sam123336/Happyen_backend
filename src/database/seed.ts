@@ -1,11 +1,9 @@
 import { config as loadEnvironment } from 'dotenv';
-import { sql } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { Pool } from 'pg';
 
 import { parseEnvironment } from '../config/index.js';
-import { eventOccurrences, events, venues } from './schema/index.js';
 import type { EventCategory } from '../events/event.types.js';
+import { createSequelize, DatabaseService } from './database.service.js';
+import { Event, EventOccurrence, Venue, type GeoPoint } from './models.js';
 
 /**
  * Demonstration data, not a listing feed. The venues below are invented names
@@ -107,79 +105,46 @@ const samples: Sample[] = [
   },
 ];
 
-const point = (longitude: number, latitude: number) =>
-  sql`ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)::geography`;
-
-const pool = new Pool({
-  connectionString: environment.DIRECT_URL ?? environment.DATABASE_URL,
-});
-const database = drizzle(pool);
+const database = new DatabaseService(
+  createSequelize(environment.DIRECT_URL ?? environment.DATABASE_URL, {
+    poolMax: 1,
+  }),
+);
 
 try {
   for (const sample of samples) {
-    const location = point(sample.longitude, sample.latitude);
+    const location: GeoPoint = {
+      coordinates: [sample.longitude, sample.latitude],
+      type: 'Point',
+    };
     const startAt = new Date(now + sample.startsInHours * hour);
 
-    await database
-      .insert(venues)
-      .values({
-        id: sample.venueId,
-        location,
-        name: sample.venueName,
-      })
-      .onConflictDoUpdate({
-        set: { location, name: sample.venueName, updatedAt: new Date() },
-        target: venues.id,
-      });
-
-    await database
-      .insert(events)
-      .values({
-        category: sample.category,
-        id: sample.eventId,
-        status: 'published',
-        title: sample.title,
-      })
-      .onConflictDoUpdate({
-        set: {
-          status: 'published',
-          title: sample.title,
-          updatedAt: new Date(),
-        },
-        target: events.id,
-      });
-
+    await Venue.upsert({
+      id: sample.venueId,
+      location,
+      name: sample.venueName,
+    });
+    await Event.upsert({
+      category: sample.category,
+      id: sample.eventId,
+      status: 'published',
+      title: sample.title,
+    });
     // Start times are relative to the run, so a reseed always leaves the map
     // with something upcoming rather than a wall of finished events.
-    await database
-      .insert(eventOccurrences)
-      .values({
-        endAt: new Date(
-          startAt.getTime() + (sample.durationInHours ?? 3) * hour,
-        ),
-        eventId: sample.eventId,
-        id: sample.occurrenceId,
-        location,
-        startAt,
-        status: 'published',
-        venueId: sample.venueId,
-        venueName: sample.venueName,
-      })
-      .onConflictDoUpdate({
-        set: {
-          endAt: new Date(
-            startAt.getTime() + (sample.durationInHours ?? 3) * hour,
-          ),
-          location,
-          startAt,
-          status: 'published',
-          updatedAt: new Date(),
-        },
-        target: eventOccurrences.id,
-      });
+    await EventOccurrence.upsert({
+      endAt: new Date(startAt.getTime() + (sample.durationInHours ?? 3) * hour),
+      eventId: sample.eventId,
+      id: sample.occurrenceId,
+      location,
+      startAt,
+      status: 'published',
+      venueId: sample.venueId,
+      venueName: sample.venueName,
+    });
   }
 
   console.log(`Seeded ${samples.length} demonstration events`);
 } finally {
-  await pool.end();
+  await database.sequelize.close();
 }

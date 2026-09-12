@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, eq, gte, gt, isNull, lte, or, sql } from 'drizzle-orm';
+import { Op, cast, col, fn, where as sqlWhere } from 'sequelize';
 
 import { DatabaseService } from '../database/database.service.js';
-import { eventOccurrences, events } from '../database/schema/index.js';
+import { EventOccurrence } from '../database/models.js';
 import type { EventPin, NearbySearch } from './event.types.js';
 
 @Injectable()
@@ -12,74 +12,97 @@ export class EventRepository {
   /**
    * Published occurrences inside `radiusMeters` of a point, soonest first.
    *
-   * The geography column is never selected raw — the driver would hand back
-   * WKB — so the projection casts to geometry and reads the ordinates back out.
    * `ST_DWithin` on geography is metres, and it is the form that uses
-   * `event_occurrences_location_gix`.
+   * `event_occurrences_location_gix`. The geography column itself comes back
+   * as GeoJSON, so the coordinates are read off it rather than projected.
    */
-  public nearby(search: NearbySearch): Promise<EventPin[]> {
-    const origin = sql`ST_SetSRID(ST_MakePoint(${search.longitude}, ${search.latitude}), 4326)::geography`;
-    // Use one timestamp for both the live projection and the predicate. That
-    // makes a response internally consistent if an event crosses its start or
-    // end boundary while Postgres is evaluating the query.
+  public async nearby(search: NearbySearch): Promise<EventPin[]> {
+    void this.database;
+    const origin = cast(
+      fn(
+        'ST_SetSRID',
+        fn('ST_MakePoint', search.longitude, search.latitude),
+        4326,
+      ),
+      'geography',
+    );
+    const location = col('EventOccurrence.location');
+    // Use one timestamp for both the live flag and the predicate. That makes a
+    // response internally consistent if an event crosses its start or end
+    // boundary while the query runs.
     const now = new Date();
-    const activeOccurrence = and(
-      lte(eventOccurrences.startAt, now),
-      or(isNull(eventOccurrences.endAt), gt(eventOccurrences.endAt, now)),
-    );
-    const upcomingOccurrence = and(
-      gte(eventOccurrences.startAt, search.startsAfter),
-      search.startsBefore === undefined
-        ? undefined
-        : lte(eventOccurrences.startAt, search.startsBefore),
-    );
+    const activeOccurrence = {
+      [Op.or]: [{ endAt: null }, { endAt: { [Op.gt]: now } }],
+      startAt: { [Op.lte]: now },
+    };
+    const upcomingOccurrence = {
+      startAt: {
+        [Op.gte]: search.startsAfter,
+        ...(search.startsBefore === undefined
+          ? {}
+          : { [Op.lte]: search.startsBefore }),
+      },
+    };
 
     // A city map is useful while an event is underway as well as before it
     // starts. Callers that are rendering a future-only time window can opt
     // out of the live branch with includeLive=false.
     const timeWindow =
       (search.includeLive ?? true)
-        ? or(activeOccurrence, upcomingOccurrence)
+        ? { [Op.or]: [activeOccurrence, upcomingOccurrence] }
         : upcomingOccurrence;
 
-    return this.database.client
-      .select({
-        category: events.category,
-        distanceMeters:
-          sql<number>`ST_Distance(${eventOccurrences.location}, ${origin})`.mapWith(
-            Number,
+    const rows = await EventOccurrence.findAll({
+      attributes: {
+        include: [[fn('ST_Distance', location, origin), 'distanceMeters']],
+      },
+      include: [
+        {
+          association: 'event',
+          attributes: ['category', 'heroImageUrl', 'title'],
+          required: true,
+          where: {
+            status: 'published',
+            ...(search.category === undefined
+              ? {}
+              : { category: search.category }),
+          },
+        },
+      ],
+      limit: search.limit,
+      order: [['startAt', 'ASC']],
+      where: {
+        [Op.and]: [
+          { status: 'published' },
+          sqlWhere(
+            fn('ST_DWithin', location, origin, search.radiusMeters),
+            true,
           ),
-        endAt: eventOccurrences.endAt,
-        eventId: events.id,
-        heroImageUrl: events.heroImageUrl,
-        id: eventOccurrences.id,
-        isLive: sql<boolean>`(${eventOccurrences.startAt} <= ${now} AND (${eventOccurrences.endAt} IS NULL OR ${eventOccurrences.endAt} > ${now}))`,
-        latitude:
-          sql<number>`ST_Y(${eventOccurrences.location}::geometry)`.mapWith(
-            Number,
-          ),
-        longitude:
-          sql<number>`ST_X(${eventOccurrences.location}::geometry)`.mapWith(
-            Number,
-          ),
-        startAt: eventOccurrences.startAt,
-        title: events.title,
-        venueName: eventOccurrences.venueName,
-      })
-      .from(eventOccurrences)
-      .innerJoin(events, eq(eventOccurrences.eventId, events.id))
-      .where(
-        and(
-          eq(eventOccurrences.status, 'published'),
-          eq(events.status, 'published'),
-          sql`ST_DWithin(${eventOccurrences.location}, ${origin}, ${search.radiusMeters})`,
           timeWindow,
-          search.category === undefined
-            ? undefined
-            : eq(events.category, search.category),
-        ),
-      )
-      .orderBy(asc(eventOccurrences.startAt))
-      .limit(search.limit);
+        ],
+      },
+    });
+
+    return rows.map((row) => {
+      const event = row.event;
+      if (event === undefined) {
+        throw new Error('Occurrence loaded without its event');
+      }
+      const [longitude, latitude] = row.location.coordinates;
+      return {
+        category: event.category,
+        distanceMeters: Number(row.get('distanceMeters')),
+        endAt: row.endAt,
+        eventId: row.eventId,
+        heroImageUrl: event.heroImageUrl,
+        id: row.id,
+        isLive: row.startAt <= now && (row.endAt === null || row.endAt > now),
+        latitude,
+        longitude,
+        startAt: row.startAt,
+        title: event.title,
+        venueName: row.venueName,
+      };
+    });
   }
 }

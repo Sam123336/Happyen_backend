@@ -30,6 +30,8 @@ const activeUser: UserProfileView = {
   presenceVisibility: 'nobody',
   profileVisibility: 'everyone',
   status: 'active',
+  streakDays: 1,
+  streakLastActiveOn: '2026-09-12',
   userId: 'd8184dae-d19c-4d8a-9e36-9ce003cf2f5a',
   username: null,
 };

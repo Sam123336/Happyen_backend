@@ -1,13 +1,12 @@
 import { randomUUID } from 'node:crypto';
 
-import { eq } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { DatabaseService } from '../database/database.service.js';
-import * as schema from '../database/schema/index.js';
-import { users } from '../database/schema/index.js';
+import {
+  createSequelize,
+  DatabaseService,
+} from '../database/database.service.js';
+import { User } from '../database/models.js';
 import { UserRepository } from './user.repository.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -15,21 +14,24 @@ const describeWithDatabase =
   databaseUrl === undefined ? describe.skip : describe;
 
 describeWithDatabase('UserRepository integration', () => {
-  const pool = new Pool({ connectionString: databaseUrl });
-  const repository = new UserRepository(
-    new DatabaseService(drizzle(pool, { schema }), pool),
+  // The suite body still runs when skipped; a placeholder URL is never opened.
+  const database = new DatabaseService(
+    createSequelize(databaseUrl ?? 'postgresql://localhost/skipped', {
+      poolMax: 1,
+    }),
   );
+  const repository = new UserRepository(database);
   let provisionedUserId: string | undefined;
 
   beforeAll(async () => {
-    await pool.query('select 1');
+    await database.ping();
   });
 
   afterAll(async () => {
     if (provisionedUserId !== undefined) {
-      await drizzle(pool).delete(users).where(eq(users.id, provisionedUserId));
+      await User.destroy({ where: { id: provisionedUserId } });
     }
-    await pool.end();
+    await database.sequelize.close();
   });
 
   it('provisions safe privacy defaults and updates a normalized profile', async () => {
@@ -42,11 +44,13 @@ describeWithDatabase('UserRepository integration', () => {
       subject: randomUUID(),
     };
 
-    const provisioned = await repository.provision(identity);
+    const provisioned = await repository.provision(identity, '2026-09-12');
     provisionedUserId = provisioned.userId;
 
     expect(provisioned).toMatchObject({
       displayName: 'City Explorer',
+      streakDays: 1,
+      streakLastActiveOn: '2026-09-12',
       momentsVisibility: 'friends',
       presenceVisibility: 'nobody',
       profileVisibility: 'everyone',
@@ -62,10 +66,15 @@ describeWithDatabase('UserRepository integration', () => {
       username: 'city_explorer',
     });
 
-    const reprovisioned = await repository.provision({
-      ...identity,
-      displayName: 'Ignored Provider Refresh',
-    });
+    const reprovisioned = await repository.provision(
+      {
+        ...identity,
+        displayName: 'Ignored Provider Refresh',
+      },
+      '2026-09-13',
+    );
+    // The day after the first opening: the streak grows instead of resetting.
+    expect(reprovisioned.streakDays).toBe(2);
     expect(reprovisioned.userId).toBe(provisioned.userId);
     expect(reprovisioned.username).toBe('city_explorer');
   });

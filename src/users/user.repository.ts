@@ -1,19 +1,29 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { UniqueConstraintError, col, fn, where as sqlWhere } from 'sequelize';
 
 import type { ExternalIdentity } from '../auth/external-identity.js';
 import { DatabaseService } from '../database/database.service.js';
 import {
-  privacySettings,
-  profiles,
-  userIdentities,
-  users,
-} from '../database/schema/index.js';
+  PrivacySettings,
+  Profile,
+  User,
+  UserIdentity,
+} from '../database/models.js';
+import { advanceStreak } from './streak.js';
 import type {
   UpdatePrivacyInput,
   UpdateProfileInput,
   UserProfileView,
 } from './user.types.js';
+
+type Defined<T> = { [K in keyof T]?: Exclude<T[K], undefined> };
+
+/** A field left out must stay as it is; `undefined` would be written as NULL. */
+function defined<T extends object>(input: T): Defined<T> {
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value !== undefined),
+  ) as Defined<T>;
+}
 
 @Injectable()
 export class UserRepository {
@@ -22,56 +32,57 @@ export class UserRepository {
   public async findByIdentity(
     identity: ExternalIdentity,
   ): Promise<UserProfileView | null> {
-    const [result] = await this.database.client
-      .select(this.selection())
-      .from(userIdentities)
-      .innerJoin(users, eq(userIdentities.userId, users.id))
-      .innerJoin(profiles, eq(profiles.userId, users.id))
-      .innerJoin(privacySettings, eq(privacySettings.userId, users.id))
-      .where(
-        and(
-          eq(userIdentities.issuer, identity.issuer),
-          eq(userIdentities.subject, identity.subject),
-        ),
-      )
-      .limit(1);
+    const found = await UserIdentity.findOne({
+      attributes: ['userId'],
+      where: { issuer: identity.issuer, subject: identity.subject },
+    });
 
-    return result ?? null;
+    return found === null ? null : this.findByUserId(found.userId);
   }
 
-  public async provision(identity: ExternalIdentity): Promise<UserProfileView> {
+  /**
+   * The account behind an external identity, created on first sight. Every
+   * call also counts as opening the city on `activeOn`, which is what the
+   * streak measures.
+   */
+  public async provision(
+    identity: ExternalIdentity,
+    activeOn: string,
+  ): Promise<UserProfileView> {
     const existing = await this.findByIdentity(identity);
     if (existing !== null) {
       await this.refreshIdentity(identity);
+      await this.recordActivity(existing.userId, activeOn);
       return (await this.findByUserId(existing.userId)) ?? existing;
     }
 
     try {
-      const userId = await this.database.client.transaction(
+      const userId = await this.database.sequelize.transaction(
         async (transaction) => {
-          const [user] = await transaction
-            .insert(users)
-            .values({})
-            .returning({ id: users.id });
-          if (user === undefined) {
-            throw new Error('User provisioning did not return an identifier');
-          }
-
-          await transaction.insert(userIdentities).values({
-            email: identity.email ?? null,
-            emailVerified: identity.emailVerified,
-            issuer: identity.issuer,
-            phoneE164: identity.phoneE164 ?? null,
-            signInProvider: identity.signInProvider ?? null,
-            subject: identity.subject,
-            userId: user.id,
-          });
-          await transaction.insert(profiles).values({
-            avatarUrl: identity.avatarUrl ?? null,
-            displayName: this.defaultDisplayName(identity),
-            userId: user.id,
-          });
-          await transaction.insert(privacySettings).values({ userId: user.id });
+          const user = await User.create({}, { transaction });
+          await UserIdentity.create(
+            {
+              email: identity.email ?? null,
+              emailVerified: identity.emailVerified,
+              issuer: identity.issuer,
+              phoneE164: identity.phoneE164 ?? null,
+              signInProvider: identity.signInProvider ?? null,
+              subject: identity.subject,
+              userId: user.id,
+            },
+            { transaction },
+          );
+          await Profile.create(
+            {
+              avatarUrl: identity.avatarUrl ?? null,
+              displayName: this.defaultDisplayName(identity),
+              streakDays: 1,
+              streakLastActiveOn: activeOn,
+              userId: user.id,
+            },
+            { transaction },
+          );
+          await PrivacySettings.create({ userId: user.id }, { transaction });
 
           return user.id;
         },
@@ -83,7 +94,7 @@ export class UserRepository {
       }
       return provisioned;
     } catch (error: unknown) {
-      if (this.isUniqueViolation(error)) {
+      if (error instanceof UniqueConstraintError) {
         const concurrent = await this.findByIdentity(identity);
         if (concurrent !== null) {
           return concurrent;
@@ -102,44 +113,41 @@ export class UserRepository {
    * unique violation rather than trusting the answer.
    */
   public async isUsernameAvailable(username: string): Promise<boolean> {
-    const [taken] = await this.database.client
-      .select({ userId: profiles.userId })
-      .from(profiles)
-      .where(sql`lower(${profiles.username}) = lower(${username})`)
-      .limit(1);
+    const taken = await Profile.count({
+      where: sqlWhere(fn('lower', col('username')), username.toLowerCase()),
+    });
 
-    return taken === undefined;
+    return taken === 0;
   }
 
   public async updateProfile(
     userId: string,
     input: UpdateProfileInput,
   ): Promise<UserProfileView | null> {
-    await this.database.client
-      .update(profiles)
-      .set({
-        ...(input.bio !== undefined ? { bio: input.bio } : {}),
-        ...(input.displayName !== undefined
-          ? { displayName: input.displayName }
-          : {}),
-        ...(input.username !== undefined
-          ? { username: input.username?.toLowerCase() ?? null }
-          : {}),
-        updatedAt: new Date(),
-      })
-      .where(eq(profiles.userId, userId))
-      .catch((error: unknown) => {
-        // Two people claiming one name race past isUsernameAvailable; the
-        // unique index is what actually decides, so report the loser honestly
-        // instead of letting a 23505 surface as an internal error.
-        if (this.isUniqueViolation(error)) {
-          throw new ConflictException({
-            code: 'username_taken',
-            message: 'That username is already taken',
-          });
-        }
-        throw error;
-      });
+    try {
+      await Profile.update(
+        defined({
+          bio: input.bio,
+          displayName: input.displayName,
+          username:
+            input.username === undefined
+              ? undefined
+              : (input.username?.toLowerCase() ?? null),
+        }),
+        { where: { userId } },
+      );
+    } catch (error: unknown) {
+      // Two people claiming one name race past isUsernameAvailable; the
+      // unique index is what actually decides, so report the loser honestly
+      // instead of letting a 23505 surface as an internal error.
+      if (error instanceof UniqueConstraintError) {
+        throw new ConflictException({
+          code: 'username_taken',
+          message: 'That username is already taken',
+        });
+      }
+      throw error;
+    }
 
     return this.findByUserId(userId);
   }
@@ -148,51 +156,81 @@ export class UserRepository {
     userId: string,
     input: UpdatePrivacyInput,
   ): Promise<UserProfileView | null> {
-    await this.database.client
-      .update(privacySettings)
-      .set({
-        ...input,
-        updatedAt: new Date(),
-      })
-      .where(eq(privacySettings.userId, userId));
+    await PrivacySettings.update(defined(input), { where: { userId } });
 
     return this.findByUserId(userId);
   }
 
   private async findByUserId(userId: string): Promise<UserProfileView | null> {
-    const [result] = await this.database.client
-      .select(this.selection())
-      .from(users)
-      .innerJoin(profiles, eq(profiles.userId, users.id))
-      .innerJoin(privacySettings, eq(privacySettings.userId, users.id))
-      .innerJoin(userIdentities, eq(userIdentities.userId, users.id))
-      .where(eq(users.id, userId))
-      .limit(1);
+    const user = await User.findByPk(userId, {
+      include: ['identities', 'privacySettings', 'profile'],
+    });
+    const profile = user?.profile;
+    const privacy = user?.privacySettings;
+    const identity = user?.identities?.[0];
+    if (
+      user === null ||
+      profile === undefined ||
+      privacy === undefined ||
+      identity === undefined
+    ) {
+      return null;
+    }
 
-    return result ?? null;
+    return {
+      avatarUrl: profile.avatarUrl,
+      bio: profile.bio,
+      displayName: profile.displayName,
+      email: identity.email,
+      emailVerified: identity.emailVerified,
+      momentsVisibility: privacy.momentsVisibility,
+      phoneE164: identity.phoneE164,
+      presenceVisibility: privacy.presenceVisibility,
+      profileVisibility: privacy.profileVisibility,
+      status: user.status,
+      streakDays: profile.streakDays,
+      streakLastActiveOn: profile.streakLastActiveOn,
+      userId: user.id,
+      username: profile.username,
+    };
+  }
+
+  /**
+   * Read-modify-write rather than a SQL CASE so the rule lives in one tested
+   * function. Two sessions racing on the same day both land on the same
+   * answer, so the race is harmless.
+   */
+  private async recordActivity(
+    userId: string,
+    activeOn: string,
+  ): Promise<void> {
+    const current = await Profile.findByPk(userId, {
+      attributes: ['streakDays', 'streakLastActiveOn'],
+    });
+    if (current === null) {
+      return;
+    }
+
+    const next = advanceStreak(current, activeOn);
+    if (next === current) {
+      return;
+    }
+    await Profile.update(next, { where: { userId } });
   }
 
   private async refreshIdentity(identity: ExternalIdentity): Promise<void> {
-    await this.database.client
-      .update(userIdentities)
-      .set({
-        ...(identity.email !== undefined ? { email: identity.email } : {}),
+    await UserIdentity.update(
+      {
+        ...defined({
+          email: identity.email,
+          phoneE164: identity.phoneE164,
+          signInProvider: identity.signInProvider,
+        }),
         emailVerified: identity.emailVerified,
         lastAuthenticatedAt: new Date(),
-        ...(identity.phoneE164 !== undefined
-          ? { phoneE164: identity.phoneE164 }
-          : {}),
-        ...(identity.signInProvider !== undefined
-          ? { signInProvider: identity.signInProvider }
-          : {}),
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(userIdentities.issuer, identity.issuer),
-          eq(userIdentities.subject, identity.subject),
-        ),
-      );
+      },
+      { where: { issuer: identity.issuer, subject: identity.subject } },
+    );
   }
 
   private defaultDisplayName(identity: ExternalIdentity): string {
@@ -206,31 +244,5 @@ export class UserRepository {
       return identity.email.split('@')[0]?.slice(0, 80) || 'Happyn member';
     }
     return 'Happyn member';
-  }
-
-  private isUniqueViolation(error: unknown): boolean {
-    return (
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      error.code === '23505'
-    );
-  }
-
-  private selection() {
-    return {
-      avatarUrl: profiles.avatarUrl,
-      bio: profiles.bio,
-      displayName: profiles.displayName,
-      email: userIdentities.email,
-      emailVerified: userIdentities.emailVerified,
-      momentsVisibility: privacySettings.momentsVisibility,
-      phoneE164: userIdentities.phoneE164,
-      presenceVisibility: privacySettings.presenceVisibility,
-      profileVisibility: privacySettings.profileVisibility,
-      status: users.status,
-      userId: users.id,
-      username: profiles.username,
-    };
   }
 }

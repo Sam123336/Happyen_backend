@@ -1,11 +1,15 @@
-import { sql } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { DatabaseService } from '../database/database.service.js';
-import * as schema from '../database/schema/index.js';
-import { eventOccurrences, events, venues } from '../database/schema/index.js';
+import {
+  createSequelize,
+  DatabaseService,
+} from '../database/database.service.js';
+import {
+  Event,
+  EventOccurrence,
+  Venue,
+  type GeoPoint,
+} from '../database/models.js';
 import { EventRepository } from './event.repository.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -23,27 +27,33 @@ const liveId = '55555555-5555-4555-8555-000000000003';
 const venueId = '66666666-6666-4666-8666-000000000001';
 
 describeWithDatabase('EventRepository integration', () => {
-  const pool = new Pool({ connectionString: databaseUrl });
-  const database = drizzle(pool, { schema });
-  const repository = new EventRepository(new DatabaseService(database, pool));
+  // The suite body still runs when skipped; a placeholder URL is never opened.
+  const database = new DatabaseService(
+    createSequelize(databaseUrl ?? 'postgresql://localhost/skipped', {
+      poolMax: 1,
+    }),
+  );
+  const repository = new EventRepository(database);
   const startAt = new Date(Date.now() + 60 * 60 * 1000);
 
-  const point = (place: { latitude: number; longitude: number }) =>
-    sql`ST_SetSRID(ST_MakePoint(${place.longitude}, ${place.latitude}), 4326)::geography`;
+  const point = (place: { latitude: number; longitude: number }): GeoPoint => ({
+    coordinates: [place.longitude, place.latitude],
+    type: 'Point',
+  });
 
   beforeAll(async () => {
-    await database.insert(venues).values({
+    await Venue.create({
       id: venueId,
       location: point(origin),
       name: 'Test Venue',
     });
-    await database.insert(events).values({
+    await Event.create({
       category: 'comedy',
       id: eventId,
       status: 'published',
       title: 'Integration Night',
     });
-    await database.insert(eventOccurrences).values([
+    await EventOccurrence.bulkCreate([
       {
         eventId,
         id: nearId,
@@ -75,19 +85,21 @@ describeWithDatabase('EventRepository integration', () => {
   });
 
   afterAll(async () => {
-    await database.delete(events).where(sql`${events.id} = ${eventId}`);
-    await database.delete(venues).where(sql`${venues.id} = ${venueId}`);
-    await pool.end();
+    await Event.destroy({ where: { id: eventId } });
+    await Venue.destroy({ where: { id: venueId } });
+    await database.sequelize.close();
   });
 
   it('returns coordinates back out of the geography column', async () => {
-    const [pin] = await repository.nearby({
+    const pins = await repository.nearby({
       latitude: origin.latitude,
       limit: 10,
       longitude: origin.longitude,
       radiusMeters: 2_000,
       startsAfter: new Date(),
     });
+    // Soonest first puts the ongoing occurrence ahead of this one.
+    const pin = pins.find((candidate) => candidate.id === nearId);
 
     expect(pin?.id).toBe(nearId);
     expect(pin?.latitude).toBeCloseTo(origin.latitude, 5);

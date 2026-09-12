@@ -4,8 +4,8 @@ The public application API is versioned beneath `/v1` and will publish OpenAPI.
 
 - `GET /v1/health/live` — confirms that the API process can serve requests.
 - `GET /v1/health/ready` — confirms that the API can reach PostgreSQL.
-- `POST /v1/auth/session` — validates a Firebase ID token and idempotently provisions the Happyn account.
-- `GET /v1/me/profile` — returns the authenticated account, profile, and privacy defaults.
+- `POST /v1/auth/session` — validates the bearer token and idempotently provisions the Happyen account. The optional JSON body `{ "localDate": "YYYY-MM-DD" }` is the phone's calendar day; each distinct day advances the profile's `streakDays` (consecutive days the city was opened) or restarts it at 1 after a gap. A day more than one day away from the server's UTC date is ignored in favour of the server's.
+- `GET /v1/me/profile` — returns the authenticated account, profile, privacy defaults, and the streak (`streakDays`, `streakLastActiveOn`).
 - `PATCH /v1/me/profile` — updates `displayName`, `username`, and/or `bio`.
 - `PATCH /v1/me/privacy` — updates explicit `profileVisibility`, `presenceVisibility`, and/or `momentsVisibility` audiences.
 - `GET /v1/places/search?lat=&lng=&query=&radius_m=&limit=` — venue candidates near a point, from Foursquare Places. `radius_m` is metres (max 100000), `limit` defaults to 10 (max 50). Returns `503` when `FOURSQUARE_API_KEY` is unset or Foursquare rejects the call.
