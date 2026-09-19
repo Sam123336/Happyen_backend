@@ -1,4 +1,5 @@
 import type { OnApplicationShutdown } from '@nestjs/common';
+import pg from 'pg';
 import { Sequelize } from 'sequelize';
 
 import { initModels } from './models.js';
@@ -20,6 +21,12 @@ export function createSequelize(
 
   return new Sequelize(url, {
     dialect: 'postgres',
+    // Handed the driver rather than letting Sequelize `require('pg')` itself.
+    // A bundler only traces static imports, so the dynamic require resolves
+    // fine locally and fails in a deployed function with "Please install pg
+    // package manually" — which is a packaging error wearing a dependency
+    // error's clothes.
+    dialectModule: pg,
     dialectOptions: ssl,
     logging: false,
     pool: { max: options.poolMax, min: 0 },
