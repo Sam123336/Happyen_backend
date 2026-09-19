@@ -60,6 +60,32 @@ Neon scales compute to zero when idle, so the first request after a quiet spell
 pays a cold start of a few seconds. Integration tests budget for it; see the
 timeout on the `*.integration.test.ts` suites.
 
+## Environments
+
+Three environments, one Neon project each, selected by env file. Node's own
+`--env-file` loads the chosen one; `dotenv` does not override what is already
+set, so no source change was needed.
+
+| File        | `HAPPYN_ENV` | Neon project       | Region    |
+| ----------- | ------------ | ------------------ | --------- |
+| `.env`      | `local`      | `ep-bitter-cloud`  | us-east-2 |
+| `.env.uat`  | `staging`    | `ep-divine-band`   | us-east-2 |
+| `.env.prod` | `production` | `ep-delicate-surf` | us-east-1 |
+
+```text
+pnpm db:migrate         pnpm start
+pnpm db:migrate:uat     pnpm start:uat
+pnpm db:migrate:prod    pnpm start:prod
+```
+
+Each file needs a matched pair: `DATABASE_URL` on the `-pooler` host and
+`DIRECT_URL` on the same host without it. Mixing projects across the two is the
+failure that looks like success — migrations report applied while the database
+the API reads stays empty.
+
+All three are gitignored (`.env*`, minus `.env.example`). They hold live
+credentials; only `.env.example` is committed.
+
 ## Migrations
 
 Schema changes are TypeScript files under `src/database/migrations/`, named
