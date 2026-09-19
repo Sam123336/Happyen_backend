@@ -3,7 +3,7 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { parseEnvironment } from '../config/index.js';
 import { publishVenueCandidates } from '../queue/queue.client.js';
-import { PlacesCache } from './places.cache.js';
+import { UpstashCache } from '../common/cache/upstash-cache.js';
 import { PlacesController } from './places.controller.js';
 import { PlacesService } from './places.service.js';
 
@@ -21,7 +21,7 @@ import { PlacesService } from './places.service.js';
           environment.UPSTASH_REDIS_REST_URL === undefined ||
           environment.UPSTASH_REDIS_REST_TOKEN === undefined
             ? undefined
-            : new PlacesCache(
+            : new UpstashCache(
                 environment.UPSTASH_REDIS_REST_URL,
                 environment.UPSTASH_REDIS_REST_TOKEN,
                 environment.PLACES_CACHE_TTL_SECONDS,

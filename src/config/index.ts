@@ -39,6 +39,13 @@ const environmentSchema = z.object({
    * Fast2SMS key for delivering the Supabase-generated sign-in code. Route
    * `otp` needs no DLT registration and no sender id, and is India-only.
    */
+  /**
+   * PredictHQ access token. The events feed; without it the ingest cron is a
+   * no-op and the map shows only events Happyen owns.
+   */
+  PREDICTHQ_TOKEN: z.string().min(1).optional(),
+  /** How far around the city centre to ingest, in kilometres. */
+  PREDICTHQ_RADIUS_KM: z.coerce.number().int().min(1).max(200).default(25),
   FAST2SMS_API_KEY: z.string().min(1).optional(),
   /**
    * Which Fast2SMS route delivers the code.

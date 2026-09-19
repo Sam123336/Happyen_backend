@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { PlacesCache } from './places.cache.js';
+import { UpstashCache } from '../common/cache/upstash-cache.js';
 import { PlacesService } from './places.service.js';
 
 function stubFetch(body: unknown, ok = true, status = 200) {
@@ -42,7 +42,7 @@ function stubUpstash(options: { failing?: boolean } = {}) {
       ok: true,
     });
   };
-  const cache = new PlacesCache(
+  const cache = new UpstashCache(
     'https://upstash.test',
     'upstash-token',
     900,

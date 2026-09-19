@@ -19,12 +19,19 @@
           "topic": "venue-candidates"
         }
       ]
+    },
+    "api/cron/ingest-events.js": {
+      "maxDuration": 300
     }
   },
   "crons": [
     {
       "path": "/api/cron/heartbeat",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/ingest-events",
+      "schedule": "0 1 * * *"
     }
   ],
   "rewrites": [

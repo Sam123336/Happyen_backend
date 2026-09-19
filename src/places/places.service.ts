@@ -2,7 +2,7 @@ import { ServiceUnavailableException } from '@nestjs/common';
 import { z } from 'zod';
 
 import type { VenueCandidate } from '../queue/queue.client.js';
-import type { PlacesCache } from './places.cache.js';
+import type { UpstashCache } from '../common/cache/upstash-cache.js';
 
 /**
  * Foursquare pins response behaviour to a dated version rather than a path
@@ -113,7 +113,7 @@ export class PlacesService {
   public constructor(
     private readonly apiKey?: string,
     private readonly fetchImpl: typeof fetch = globalThis.fetch,
-    private readonly cache?: PlacesCache,
+    private readonly cache?: UpstashCache,
     private readonly publishVenues?: (
       venues: VenueCandidate[],
       idempotencyKey: string,

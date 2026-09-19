@@ -175,6 +175,9 @@ export class Event extends Model<
   declare heroImageUrl: CreationOptional<string | null>;
   /** External ticketing lives off-platform; Happyen only links out. */
   declare ticketUrl: CreationOptional<string | null>;
+  /** The feed this came from, null for events Happyen owns outright. */
+  declare source: CreationOptional<string | null>;
+  declare sourceId: CreationOptional<string | null>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 
@@ -382,6 +385,8 @@ export function initModels(sequelize: Sequelize): void {
       },
       heroImageUrl: DataTypes.TEXT,
       ticketUrl: DataTypes.TEXT,
+      source: DataTypes.STRING(32),
+      sourceId: DataTypes.STRING(128),
       ...stamps,
     },
     { ...table, tableName: 'events' },

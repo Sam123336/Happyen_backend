@@ -9,11 +9,12 @@ import { z } from 'zod';
 const commandSchema = z.object({ result: z.unknown() });
 
 /**
- * A cache miss and a cache outage are the same answer — `null`. Foursquare is
- * the source of truth and a Redis that is down must not take venue search down
- * with it, so every failure here is swallowed rather than raised.
+ * A cache miss and a cache outage are the same answer — `null`. Whatever is
+ * behind the cache is the source of truth, and a Redis that is down must not
+ * take the feature down with it, so every failure here is swallowed rather
+ * than raised.
  */
-export class PlacesCache {
+export class UpstashCache {
   public constructor(
     private readonly url: string,
     private readonly token: string,
