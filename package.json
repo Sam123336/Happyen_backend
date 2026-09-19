@@ -12,6 +12,8 @@
     "build": "tsc -p tsconfig.json",
     "db:migrate": "node --import tsx src/database/migrate.ts",
     "db:migrate:down": "node --import tsx src/database/migrate.ts --down",
+    "db:migrate:prod": "node --env-file=.env.prod --import tsx src/database/migrate.ts",
+    "db:migrate:uat": "node --env-file=.env.uat --import tsx src/database/migrate.ts",
     "db:seed": "node --import tsx src/database/seed.ts",
     "dev": "tsc -w --preserveWatchOutput & node --watch dist/main.js",
     "format": "prettier --write .",
