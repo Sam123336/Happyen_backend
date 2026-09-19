@@ -57,7 +57,12 @@ const environmentSchema = z.object({
    */
   SESSION_JWT_PRIVATE_KEY: z.string().min(1).optional().transform(toPem),
   SESSION_JWT_PUBLIC_KEY: z.string().min(1).optional().transform(toPem),
-  SESSION_JWT_ISSUER: z.string().url().default('https://api.happyen.app'),
+  /**
+   * Identifies which deployment minted a token, and is checked on verify. It
+   * is a label, never fetched — but it must differ per environment, or a
+   * staging token verifies in production. Defaults to the local server.
+   */
+  SESSION_JWT_ISSUER: z.string().url().default('http://localhost:3000'),
   SESSION_JWT_AUDIENCE: z.string().min(1).default('happyen-mobile'),
   /**
    * Upstash Redis over REST, injected by the Vercel integration. Both are
