@@ -85,7 +85,10 @@ export class PredictHqClient {
     }
 
     const url = new URL(PREDICTHQ_URL);
-    url.searchParams.set('within', `${options.radiusKm}km@${options.latitude},${options.longitude}`);
+    url.searchParams.set(
+      'within',
+      `${options.radiusKm}km@${options.latitude},${options.longitude}`,
+    );
     url.searchParams.set('category', PREDICTHQ_CATEGORIES.join(','));
     url.searchParams.set('active.gte', new Date().toISOString().slice(0, 10));
     url.searchParams.set('limit', String(options.limit));
@@ -101,13 +104,18 @@ export class PredictHqClient {
     }
 
     const response = await this.fetchImpl(url, {
-      headers: { accept: 'application/json', authorization: `Bearer ${this.token}` },
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${this.token}`,
+      },
     });
     if (!response.ok) {
       throw new Error(`PredictHQ answered ${response.status}`);
     }
 
-    const parsed = responseSchema.safeParse(await response.json().catch(() => null));
+    const parsed = responseSchema.safeParse(
+      await response.json().catch(() => null),
+    );
     if (!parsed.success) {
       throw new Error('PredictHQ returned an unreadable response');
     }

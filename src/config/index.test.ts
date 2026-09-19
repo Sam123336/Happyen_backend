@@ -14,6 +14,7 @@ describe('parseEnvironment', () => {
       HAPPYN_ENV: 'local',
       LOG_LEVEL: 'info',
       PLACES_CACHE_TTL_SECONDS: 3600,
+      PREDICTHQ_RADIUS_KM: 25,
       PORT: 3000,
       SESSION_JWT_AUDIENCE: 'happyen-mobile',
       SESSION_JWT_ISSUER: 'http://localhost:3000',
