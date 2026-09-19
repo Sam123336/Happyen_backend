@@ -13,7 +13,10 @@ const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeWithDatabase =
   databaseUrl === undefined ? describe.skip : describe;
 
-describeWithDatabase('UserRepository integration', () => {
+// A remote database answers in round trips, not microseconds: Neon is a
+// continent away, so the 5s default expires mid-suite. Local Postgres is
+// unaffected by the larger budget.
+describeWithDatabase('UserRepository integration', { timeout: 30_000 }, () => {
   // The suite body still runs when skipped; a placeholder URL is never opened.
   const database = new DatabaseService(
     createSequelize(databaseUrl ?? 'postgresql://localhost/skipped', {

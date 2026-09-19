@@ -1,7 +1,7 @@
 # Happyen backend
 
 The Happyen API and its scheduled jobs. Split out of the `Happyen` monorepo so it
-can deploy independently to Vercel against Supabase Postgres. The Flutter client
+can deploy independently to Vercel against Neon Postgres. The Flutter client
 lives in the other repository and only knows this service by its HTTPS origin.
 
 - NestJS modular monolith on Express, served by a Vercel Function.
@@ -38,22 +38,27 @@ pnpm test
 pnpm build
 ```
 
-## Supabase
+## Neon
 
-Supabase exposes two connection strings and this service needs both.
+Neon exposes two endpoints and this service needs both. Unlike Supabase, they
+share port 5432 and differ only by `-pooler` in the hostname.
 
-| Variable       | Port | Used by                     |
-| -------------- | ---- | --------------------------- |
-| `DATABASE_URL` | 6543 | Serverless request handling |
-| `DIRECT_URL`   | 5432 | Migrations only             |
+| Variable       | Host                  | Used by                     |
+| -------------- | --------------------- | --------------------------- |
+| `DATABASE_URL` | `<endpoint>-pooler.…` | Serverless request handling |
+| `DIRECT_URL`   | `<endpoint>.…`        | Migrations only             |
 
-Port 6543 is the Supavisor transaction pooler. Serverless containers must go
-through it, because each container holds its own connection and would otherwise
-exhaust the project's connection limit. The pool size drops to one connection
-per container automatically when `VERCEL` is set.
+The `-pooler` host is PgBouncer in transaction mode. Serverless containers must
+go through it, because each container holds its own connection and would
+otherwise exhaust the project's connection limit. The pool size drops to one
+connection per container automatically when `VERCEL` is set.
 
 Migrations take locks and create types, which a transaction pooler cannot carry
-across statements, so they always use the direct connection on port 5432.
+across statements, so they always use the direct endpoint.
+
+Neon scales compute to zero when idle, so the first request after a quiet spell
+pays a cold start of a few seconds. Integration tests budget for it; see the
+timeout on the `*.integration.test.ts` suites.
 
 ## Migrations
 
@@ -72,7 +77,7 @@ of re-running them; only newer migrations are executed there. Enum types on
 such a database keep their Drizzle-era names (`user_status`), while a fresh
 database gets Sequelize's (`enum_users_status`); no query depends on either.
 
-Enable the extensions once per Supabase project, matching
+Enable the extensions once per Neon project, matching
 `infrastructure/docker/postgres/init/001-extensions.sql`:
 
 ```sql
@@ -90,8 +95,8 @@ create extension if not exists unaccent;
 
    | Variable       | Value                                             |
    | -------------- | ------------------------------------------------- |
-   | `DATABASE_URL` | Supabase pooler URL, port 6543                    |
-   | `DIRECT_URL`   | Supabase direct URL, port 5432                    |
+   | `DATABASE_URL` | Neon pooler URL (`-pooler` host)                  |
+   | `DIRECT_URL`   | Neon direct URL (no `-pooler`)                    |
    | `CRON_SECRET`  | A long random string                              |
    | `HAPPYN_ENV`   | `production`                                      |
    | `LOG_LEVEL`    | `info`                                            |
