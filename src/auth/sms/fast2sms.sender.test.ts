@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { ServiceUnavailableException } from '@nestjs/common';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { Fast2SmsSender, toIndianNumber } from './fast2sms.sender.js';
 
@@ -20,6 +21,11 @@ function stubFetch(body: unknown, ok = true, status = 200) {
 }
 
 describe('Fast2SmsSender', () => {
+  beforeEach(() => {
+    // The failure path logs, and the logger reads the parsed environment.
+    process.env = { DATABASE_URL: 'postgresql://localhost/happyn' };
+  });
+
   it('posts the code on the otp route, which needs no sender id or template', async () => {
     const { calls, fetchImpl } = stubFetch({ return: true });
 
@@ -43,15 +49,17 @@ describe('Fast2SmsSender', () => {
       return: false,
     });
 
+    // A provider refusal is a dependency failure, not a bug in this service:
+    // a plain Error here would surface to the caller as an opaque 500.
     await expect(
       new Fast2SmsSender('expired-key', fetchImpl as never).send(
         '9876543210',
         '123456',
       ),
-    ).rejects.toThrow('Fast2SMS rejected the send');
+    ).rejects.toThrow(ServiceUnavailableException);
   });
 
-  it('reports an HTTP failure too', async () => {
+  it('reports an HTTP failure the same way', async () => {
     const { fetchImpl } = stubFetch({}, false, 401);
 
     await expect(
@@ -59,7 +67,7 @@ describe('Fast2SmsSender', () => {
         '9876543210',
         '123456',
       ),
-    ).rejects.toThrow('status 401');
+    ).rejects.toThrow(ServiceUnavailableException);
   });
 });
 

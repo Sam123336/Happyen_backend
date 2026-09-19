@@ -1,5 +1,8 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 
+import { parseEnvironment } from '../../config/index.js';
+import { createLogger } from '../../observability/index.js';
+
 const FAST2SMS_URL = 'https://www.fast2sms.com/dev/bulkV2';
 
 /**
@@ -46,9 +49,24 @@ export class Fast2SmsSender {
       (body as { return?: unknown }).return === true;
 
     if (!accepted) {
-      throw new Error(
-        `Fast2SMS rejected the send with status ${response.status}`,
+      // A plain Error here became an opaque 500: the caller could not tell a
+      // provider outage from a bug in this service, and the reason never
+      // reached the logs. Record what the provider actually said, then fail as
+      // the dependency failure it is.
+      const environment = parseEnvironment(process.env);
+      createLogger({
+        environment: environment.HAPPYN_ENV,
+        level: environment.LOG_LEVEL,
+        service: 'happyn-api',
+      }).error(
+        { provider: body, status: response.status },
+        'Fast2SMS refused to send a code',
       );
+
+      throw new ServiceUnavailableException({
+        code: 'sms_delivery_failed',
+        message: 'We could not send the code. Please try again.',
+      });
     }
   }
 }
