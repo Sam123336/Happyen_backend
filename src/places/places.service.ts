@@ -1,6 +1,7 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import { z } from 'zod';
 
+import type { VenueCandidate } from '../queue/queue.client.js';
 import type { PlacesCache } from './places.cache.js';
 
 /**
@@ -113,6 +114,10 @@ export class PlacesService {
     private readonly apiKey?: string,
     private readonly fetchImpl: typeof fetch = globalThis.fetch,
     private readonly cache?: PlacesCache,
+    private readonly publishVenues?: (
+      venues: VenueCandidate[],
+      idempotencyKey: string,
+    ) => Promise<void>,
   ) {}
 
   public async search(search: PlaceSearch): Promise<Place[]> {
@@ -170,8 +175,29 @@ export class PlacesService {
     // An empty result is a real answer and worth caching; repeating the call
     // upstream to learn nothing again is the thing this is here to stop.
     await this.cache?.set(key, JSON.stringify(places));
+    // Only fresh results are published. A cache hit returns above, so a
+    // repeated search neither calls Foursquare nor re-enqueues its venues.
+    // Venue ingest is a by-product of the search, never a condition of it:
+    // `?.catch` covers a publisher that rejects as well as one left unwired.
+    await this.publishVenues?.(places.map(toVenueCandidate), key)?.catch(
+      () => undefined,
+    );
     return places;
   }
+}
+
+/**
+ * Provenance, not inventory: the row Happyen keeps is its own, and carries the
+ * Foursquare id only to recognise the same venue next time.
+ */
+function toVenueCandidate(place: Place): VenueCandidate {
+  return {
+    address: place.address,
+    foursquarePlaceId: place.id,
+    latitude: place.latitude,
+    longitude: place.longitude,
+    name: place.name,
+  };
 }
 
 /** `JSON.parse` throws on a truncated value; a corrupt entry is just a miss. */

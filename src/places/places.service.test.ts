@@ -207,4 +207,61 @@ describe('PlacesService', () => {
     // Every search goes upstream, but a Redis outage never fails the request.
     expect(calls).toHaveLength(2);
   });
+
+  it('publishes the venues behind a fresh search', async () => {
+    const { fetchImpl } = stubFetch({ results: [result] });
+    const published: unknown[][] = [];
+
+    await new PlacesService(
+      'service-key',
+      fetchImpl as never,
+      undefined,
+      (venues) => {
+        published.push(venues);
+        return Promise.resolve();
+      },
+    ).search(bengaluru);
+
+    expect(published).toEqual([
+      [
+        {
+          address: '1 MG Road, Bengaluru',
+          foursquarePlaceId: 'abc123',
+          latitude: 12.97,
+          longitude: 77.59,
+          name: 'The Humming Tree',
+        },
+      ],
+    ]);
+  });
+
+  it('does not re-publish venues for a search served from the cache', async () => {
+    const { fetchImpl } = stubFetch({ results: [result] });
+    const { cache } = stubUpstash();
+    let publishes = 0;
+    const places = new PlacesService(
+      'service-key',
+      fetchImpl as never,
+      cache,
+      () => {
+        publishes += 1;
+        return Promise.resolve();
+      },
+    );
+
+    await places.search(bengaluru);
+    await places.search(bengaluru);
+
+    expect(publishes).toBe(1);
+  });
+
+  it('still answers the search when publishing fails', async () => {
+    const { fetchImpl } = stubFetch({ results: [result] });
+
+    await expect(
+      new PlacesService('service-key', fetchImpl as never, undefined, () =>
+        Promise.reject(new Error('queue unreachable')),
+      ).search(bengaluru),
+    ).resolves.toHaveLength(1);
+  });
 });

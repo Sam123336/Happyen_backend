@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module.js';
 import { parseEnvironment } from '../config/index.js';
+import { publishVenueCandidates } from '../queue/queue.client.js';
 import { PlacesCache } from './places.cache.js';
 import { PlacesController } from './places.controller.js';
 import { PlacesService } from './places.service.js';
@@ -29,6 +30,7 @@ import { PlacesService } from './places.service.js';
           environment.FOURSQUARE_API_KEY,
           globalThis.fetch,
           cache,
+          publishVenueCandidates,
         );
       },
     },

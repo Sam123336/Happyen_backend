@@ -137,6 +137,47 @@ agreement also requires "Powered by Foursquare" attribution on every screen
 where that data appears. `PLACES_CACHE_TTL_SECONDS` defaults to one hour for
 that reason — check what this account's agreement allows before raising it.
 
+## Queue
+
+Deferred work runs on Vercel Queues (public beta). One topic so far,
+`venue-candidates`: a places search publishes the venues it just saw, and a
+consumer writes them into Happyen's own `venues` table. The search itself
+returns without waiting for any of it.
+
+| Piece    | Where                                   |
+| -------- | --------------------------------------- |
+| Contract | `src/queue/queue.client.ts`             |
+| Producer | `PlacesService`, after a fresh search   |
+| Job      | `src/queue/venue-ingest.job.ts`         |
+| Consumer | `api/queues/venue-ingest.js`            |
+| Trigger  | `experimentalTriggers` in `vercel.json` |
+
+The consumer uses `handleNodeCallback`, the `(req, res)` form, because this
+project's functions are plain Node handlers rather than framework route files.
+The trigger makes it private: it has no public URL and only Vercel's queue
+infrastructure can invoke it, so unlike the cron endpoints there is no shared
+secret to check. Authentication is Vercel OIDC, so nothing of ours is in the
+environment — but that also means local runs need `vercel link` and
+`vercel env pull` before `vercel dev`, or `send` cannot authenticate.
+
+Delivery is at-least-once, so the job has to be safe to run twice. It is: the
+write is an upsert keyed on `foursquare_place_id`, which the identity migration
+made unique, and the producer passes the search's cache key as the message's
+idempotency key so a repeated search enqueues nothing new.
+
+Two failure modes are handled deliberately. A payload that will never parse is
+acknowledged rather than retried to its TTL, and a message still failing on its
+sixth delivery is acknowledged as poison. A failing _write_ is allowed to
+throw, because that is the transient case worth redelivering.
+
+Publishing is best effort at both ends: a queue that is unreachable never turns
+a successful search into a failed request.
+
+**Licence:** this writes Foursquare-derived data into Happyen's own table, which
+is storage rather than caching, and their agreement limits both. The `venues`
+row is provenance only — Happyen's row stays the source of truth — but confirm
+what this account's agreement allows before leaning on it.
+
 ## Deploying to Vercel
 
 1. Push this repository to GitHub.

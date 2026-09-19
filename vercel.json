@@ -5,8 +5,21 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "outputDirectory": "public",
   "functions": {
-    "api/index.js": { "maxDuration": 30 },
-    "api/cron/heartbeat.js": { "maxDuration": 60 }
+    "api/index.js": {
+      "maxDuration": 30
+    },
+    "api/cron/heartbeat.js": {
+      "maxDuration": 60
+    },
+    "api/queues/venue-ingest.js": {
+      "maxDuration": 60,
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "venue-candidates"
+        }
+      ]
+    }
   },
   "crons": [
     {
