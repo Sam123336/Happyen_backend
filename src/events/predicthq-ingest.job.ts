@@ -65,7 +65,7 @@ export async function ingestFeedEvents(
     // The venue is provenance-free here: PredictHQ names a place, it does not
     // give a Foursquare id, so this is Happyen's own row from the start.
     const [venue] = await Venue.findOrCreate({
-      defaults: { location, name: item.venueName },
+      defaults: { address: item.address, location, name: item.venueName },
       where: { name: item.venueName },
     });
 

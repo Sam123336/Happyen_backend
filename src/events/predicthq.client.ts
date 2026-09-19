@@ -28,7 +28,17 @@ const eventSchema = z.object({
   description: z.string().nullish(),
   end: z.string().nullish(),
   entities: z
-    .array(z.object({ name: z.string().nullish() }))
+    .array(z.object({ name: z.string().nullish(), type: z.string().nullish() }))
+    .nullish(),
+  geo: z
+    .object({
+      address: z
+        .object({
+          formatted_address: z.string().nullish(),
+          locality: z.string().nullish(),
+        })
+        .nullish(),
+    })
     .nullish(),
   id: z.string(),
   /** `[longitude, latitude]`, which is already PostGIS order. */
@@ -40,6 +50,7 @@ const eventSchema = z.object({
 const responseSchema = z.object({ results: z.array(z.unknown()) });
 
 export interface FeedEvent {
+  address: string | null;
   category: EventCategory;
   description: string | null;
   endAt: Date | null;
@@ -126,6 +137,7 @@ export function toFeedEvent(raw: unknown): FeedEvent[] {
 
   return [
     {
+      address: event.geo?.address?.formatted_address ?? null,
       category,
       description: event.description ?? null,
       endAt,
@@ -134,11 +146,26 @@ export function toFeedEvent(raw: unknown): FeedEvent[] {
       sourceId: event.id,
       startAt,
       title: event.title,
-      // The named entity is the venue; falling back to the title beats a pin
-      // labelled "unknown".
-      venueName: event.entities?.find((e) => e.name)?.name ?? event.title,
+      venueName: venueNameOf(event),
     },
   ];
+}
+
+/**
+ * `entities` mixes venues with performers: a gig lists the band as an
+ * `organization` and the room as a `venue`. Taking the first entity labelled a
+ * concert's pin "Kryptos" instead of "Hard Rock Café". Only `venue` counts,
+ * and where the feed names none, the street address is a truer label for a map
+ * pin than repeating the event's own title.
+ */
+function venueNameOf(event: z.infer<typeof eventSchema>): string {
+  const venue = event.entities?.find((e) => e.type === 'venue' && e.name)?.name;
+  return (
+    venue ??
+    event.geo?.address?.formatted_address ??
+    event.geo?.address?.locality ??
+    event.title
+  );
 }
 
 function safeJsonParse(value: string): unknown {
