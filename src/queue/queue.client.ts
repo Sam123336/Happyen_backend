@@ -1,6 +1,9 @@
 import { QueueClient } from '@vercel/queue';
 import { z } from 'zod';
 
+import { parseEnvironment } from '../config/index.js';
+import { createLogger } from '../observability/index.js';
+
 /**
  * One topic, one shape. A message outlives the deploy that published it, so the
  * consumer validates rather than trusts — the same reason the places cache
@@ -45,7 +48,18 @@ export async function publishVenueCandidates(
       // inside the retention window enqueues nothing new.
       { idempotencyKey },
     );
-  } catch {
-    // Deliberately swallowed; see the doc comment above.
+  } catch (error) {
+    // Swallowed, but never silent. Authentication is OIDC, so a local run
+    // without `vercel env pull` fails here every time, and a cache that
+    // quietly ingests nothing is the kind of thing nobody notices for weeks.
+    const environment = parseEnvironment(process.env);
+    createLogger({
+      environment: environment.HAPPYN_ENV,
+      level: environment.LOG_LEVEL,
+      service: 'happyn-api',
+    }).warn(
+      { err: error, topic: VENUE_CANDIDATES_TOPIC },
+      'Could not publish venue candidates; the search was unaffected',
+    );
   }
 }

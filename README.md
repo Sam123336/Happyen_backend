@@ -156,9 +156,16 @@ The consumer uses `handleNodeCallback`, the `(req, res)` form, because this
 project's functions are plain Node handlers rather than framework route files.
 The trigger makes it private: it has no public URL and only Vercel's queue
 infrastructure can invoke it, so unlike the cron endpoints there is no shared
-secret to check. Authentication is Vercel OIDC, so nothing of ours is in the
-environment — but that also means local runs need `vercel link` and
-`vercel env pull` before `vercel dev`, or `send` cannot authenticate.
+secret to check. Authentication is Vercel OIDC, so there is nothing to
+add to any env file: on a deployment the token is injected automatically.
+
+Locally, `vercel link && vercel env pull` writes `VERCEL_OIDC_TOKEN` into
+`.env.local`, and `dev`, `start`, `start:uat` and `start:prod` load that file
+when it exists. They load it **first** and the intended env file last, because
+`vercel env pull` writes every project variable and last `--env-file` wins — so
+a `DATABASE_URL` pulled from the Vercel project can never override the one you
+asked for. Without the token, publishing fails and logs a warning; the search
+still answers.
 
 Delivery is at-least-once, so the job has to be safe to run twice. It is: the
 write is an upsert keyed on `foursquare_place_id`, which the identity migration
