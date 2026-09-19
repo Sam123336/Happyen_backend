@@ -41,6 +41,15 @@ const environmentSchema = z.object({
    */
   FAST2SMS_API_KEY: z.string().min(1).optional(),
   /**
+   * Which Fast2SMS route delivers the code.
+   *
+   * `otp` is the cheaper one and needs no sender id or template, but the
+   * account must pass Fast2SMS's website verification first. `q` (Quick SMS)
+   * works without that and costs more per message, so it is the route to run
+   * on until verification clears — a variable rather than a deploy.
+   */
+  FAST2SMS_ROUTE: z.enum(['otp', 'q']).default('otp'),
+  /**
    * Pepper for the OTP HMAC. Six digits is a million candidates, so a bare
    * hash of a leaked table falls in seconds; keyed, it does not fall at all.
    * Rotating this invalidates every code in flight, which is harmless.

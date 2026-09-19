@@ -88,3 +88,40 @@ describe('toIndianNumber', () => {
     );
   });
 });
+
+describe('Fast2SmsSender routes', () => {
+  beforeEach(() => {
+    process.env = { DATABASE_URL: 'postgresql://localhost/happyn' };
+  });
+
+  it('sends the bare digits on the otp route, which composes its own text', async () => {
+    const { calls, fetchImpl } = stubFetch({ return: true });
+
+    await new Fast2SmsSender('key', fetchImpl as never, 'otp').send(
+      '+919876543210',
+      '123456',
+    );
+
+    expect(calls[0]?.body).toEqual({
+      numbers: '9876543210',
+      route: 'otp',
+      variables_values: '123456',
+    });
+  });
+
+  it('writes the message itself on the quick route', async () => {
+    const { calls, fetchImpl } = stubFetch({ return: true });
+
+    await new Fast2SmsSender('key', fetchImpl as never, 'q').send(
+      '+919876543210',
+      '123456',
+    );
+
+    const body = calls[0]?.body as Record<string, unknown>;
+    expect(body.route).toBe('q');
+    expect(body.numbers).toBe('9876543210');
+    // The code has to be in the text, because nothing else composes it here.
+    expect(String(body.message)).toContain('123456');
+    expect(body).not.toHaveProperty('variables_values');
+  });
+});

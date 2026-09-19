@@ -14,7 +14,23 @@ export class Fast2SmsSender {
   public constructor(
     private readonly apiKey?: string,
     private readonly fetchImpl: typeof fetch = globalThis.fetch,
+    private readonly route: 'otp' | 'q' = 'otp',
   ) {}
+
+  /**
+   * `otp` hands Fast2SMS the digits and lets it compose its own message; `q`
+   * takes free text, so the wording is ours. Same code either way.
+   */
+  private payload(numbers: string, otp: string): Record<string, unknown> {
+    return this.route === 'otp'
+      ? { numbers, route: 'otp', variables_values: otp }
+      : {
+          flash: 0,
+          message: `${otp} is your Happyen sign-in code. It expires in 5 minutes.`,
+          numbers,
+          route: 'q',
+        };
+  }
 
   public async send(phoneE164: string, otp: string): Promise<void> {
     // Unconfigured is a 503 on this one route, not a refusal to boot: the rest
@@ -27,11 +43,7 @@ export class Fast2SmsSender {
     }
 
     const response = await this.fetchImpl(FAST2SMS_URL, {
-      body: JSON.stringify({
-        numbers: toIndianNumber(phoneE164),
-        route: 'otp',
-        variables_values: otp,
-      }),
+      body: JSON.stringify(this.payload(toIndianNumber(phoneE164), otp)),
       headers: {
         authorization: this.apiKey,
         'content-type': 'application/json',

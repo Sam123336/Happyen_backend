@@ -44,8 +44,14 @@ function sessions(): SessionTokenService {
     },
     {
       provide: Fast2SmsSender,
-      useFactory: (): Fast2SmsSender =>
-        new Fast2SmsSender(parseEnvironment(process.env).FAST2SMS_API_KEY),
+      useFactory: (): Fast2SmsSender => {
+        const environment = parseEnvironment(process.env);
+        return new Fast2SmsSender(
+          environment.FAST2SMS_API_KEY,
+          globalThis.fetch,
+          environment.FAST2SMS_ROUTE,
+        );
+      },
     },
     {
       provide: RefreshTokenService,
