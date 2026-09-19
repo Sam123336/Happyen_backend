@@ -2,7 +2,7 @@
   "name": "happyen-backend",
   "version": "0.0.0",
   "private": true,
-  "description": "Happyen API and scheduled jobs, deployed to Vercel against Supabase Postgres.",
+  "description": "Happyen API and scheduled jobs, deployed to Vercel against Neon Postgres.",
   "type": "module",
   "packageManager": "pnpm@9.12.0",
   "engines": {

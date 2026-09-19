@@ -26,7 +26,10 @@ const farId = '55555555-5555-4555-8555-000000000002';
 const liveId = '55555555-5555-4555-8555-000000000003';
 const venueId = '66666666-6666-4666-8666-000000000001';
 
-describeWithDatabase('EventRepository integration', () => {
+// A remote database answers in round trips, not microseconds: Neon is a
+// continent away, so the 5s default expires mid-suite. Local Postgres is
+// unaffected by the larger budget.
+describeWithDatabase('EventRepository integration', { timeout: 30_000 }, () => {
   // The suite body still runs when skipped; a placeholder URL is never opened.
   const database = new DatabaseService(
     createSequelize(databaseUrl ?? 'postgresql://localhost/skipped', {
