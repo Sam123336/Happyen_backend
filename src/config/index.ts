@@ -28,6 +28,18 @@ const environmentSchema = z.object({
    * places-api.foursquare.com; this must be a service key.
    */
   FOURSQUARE_API_KEY: z.string().min(1).optional(),
+  /**
+   * Upstash Redis over REST, injected by the Vercel integration. Both are
+   * needed or the places cache stays off and every search goes upstream.
+   */
+  UPSTASH_REDIS_REST_URL: z.string().url().optional(),
+  UPSTASH_REDIS_REST_TOKEN: z.string().min(1).optional(),
+  /**
+   * How long a Foursquare search may be reused. Their licence caps caching of
+   * Places Data by account type, so this is deliberately short and deliberately
+   * configurable: raise it only as far as the agreement for this account allows.
+   */
+  PLACES_CACHE_TTL_SECONDS: z.coerce.number().int().min(1).default(3600),
   HAPPYN_ENV: z
     .enum(['local', 'development', 'staging', 'production'])
     .default('local'),

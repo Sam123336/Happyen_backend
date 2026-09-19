@@ -12,6 +12,7 @@ describe('parseEnvironment', () => {
       DATABASE_URL: 'postgresql://happyn:happyn@localhost:55432/happyn',
       HAPPYN_ENV: 'local',
       LOG_LEVEL: 'info',
+      PLACES_CACHE_TTL_SECONDS: 3600,
       PORT: 3000,
     });
   });

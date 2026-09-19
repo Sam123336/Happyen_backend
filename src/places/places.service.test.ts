@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { PlacesCache } from './places.cache.js';
 import { PlacesService } from './places.service.js';
 
 function stubFetch(body: unknown, ok = true, status = 200) {
@@ -18,6 +19,37 @@ function stubFetch(body: unknown, ok = true, status = 200) {
 }
 
 const bengaluru = { latitude: 12.9716, limit: 2, longitude: 77.5946 };
+
+/** An in-memory stand-in for Upstash, driven through the real REST client. */
+function stubUpstash(options: { failing?: boolean } = {}) {
+  const store = new Map<string, string>();
+  const commands: string[][] = [];
+  const fetchImpl = (_url: URL | string, init?: RequestInit) => {
+    if (options.failing === true) {
+      return Promise.reject(new Error('upstash unreachable'));
+    }
+    const command = JSON.parse(init?.body as string) as string[];
+    commands.push(command);
+    if (command[0] === 'GET') {
+      return Promise.resolve({
+        json: () => Promise.resolve({ result: store.get(command[1]!) ?? null }),
+        ok: true,
+      });
+    }
+    store.set(command[1]!, command[2]!);
+    return Promise.resolve({
+      json: () => Promise.resolve({ result: 'OK' }),
+      ok: true,
+    });
+  };
+  const cache = new PlacesCache(
+    'https://upstash.test',
+    'upstash-token',
+    900,
+    fetchImpl as never,
+  );
+  return { cache, commands, store };
+}
 
 const result = {
   categories: [{ name: 'Music Venue' }],
@@ -102,5 +134,77 @@ describe('PlacesService', () => {
     await expect(new PlacesService().search(bengaluru)).rejects.toThrow(
       'FOURSQUARE_API_KEY is not configured',
     );
+  });
+
+  it('serves a repeated search from the cache without calling Foursquare', async () => {
+    const { calls, fetchImpl } = stubFetch({ results: [result] });
+    const { cache } = stubUpstash();
+    const places = new PlacesService('service-key', fetchImpl as never, cache);
+
+    const first = await places.search(bengaluru);
+    const second = await places.search(bengaluru);
+
+    expect(second).toEqual(first);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('treats a fix that jitters within the grid as the same search', async () => {
+    const { calls, fetchImpl } = stubFetch({ results: [result] });
+    const { cache } = stubUpstash();
+    const places = new PlacesService('service-key', fetchImpl as never, cache);
+
+    await places.search(bengaluru);
+    await places.search({ ...bengaluru, latitude: 12.97162 });
+
+    expect(calls).toHaveLength(1);
+  });
+
+  it('still calls Foursquare for a search on a different grid square', async () => {
+    const { calls, fetchImpl } = stubFetch({ results: [result] });
+    const { cache } = stubUpstash();
+    const places = new PlacesService('service-key', fetchImpl as never, cache);
+
+    await places.search(bengaluru);
+    await places.search({ ...bengaluru, latitude: 13.5 });
+
+    expect(calls).toHaveLength(2);
+  });
+
+  it('stores the entry with the configured expiry', async () => {
+    const { fetchImpl } = stubFetch({ results: [result] });
+    const { cache, commands } = stubUpstash();
+
+    await new PlacesService('service-key', fetchImpl as never, cache).search(
+      bengaluru,
+    );
+
+    const write = commands.find((command) => command[0] === 'SET');
+    expect(write?.slice(-2)).toEqual(['EX', '900']);
+  });
+
+  it('falls back to Foursquare when a cached entry is unreadable', async () => {
+    const { calls, fetchImpl } = stubFetch({ results: [result] });
+    const { cache, store } = stubUpstash();
+    const places = new PlacesService('service-key', fetchImpl as never, cache);
+
+    await places.search(bengaluru);
+    for (const key of store.keys()) {
+      store.set(key, '{"truncated"');
+    }
+    const recovered = await places.search(bengaluru);
+
+    expect(calls).toHaveLength(2);
+    expect(recovered).toHaveLength(1);
+  });
+
+  it('keeps searching when the cache is unreachable', async () => {
+    const { calls, fetchImpl } = stubFetch({ results: [result] });
+    const { cache } = stubUpstash({ failing: true });
+    const places = new PlacesService('service-key', fetchImpl as never, cache);
+
+    await expect(places.search(bengaluru)).resolves.toHaveLength(1);
+    await expect(places.search(bengaluru)).resolves.toHaveLength(1);
+    // Every search goes upstream, but a Redis outage never fails the request.
+    expect(calls).toHaveLength(2);
   });
 });

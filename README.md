@@ -112,6 +112,31 @@ create extension if not exists pg_trgm;
 create extension if not exists unaccent;
 ```
 
+## Places cache
+
+`GET /v1/places/search` is a paid call upstream, so a result is cached in
+Upstash Redis and a repeated search inside the window costs nothing. Upstash is
+reached over its REST API rather than a Redis client: a TCP connection per
+serverless invocation is the same problem the Neon pooler solves for Postgres,
+and the protocol here is one POST whose body is the command as a JSON array.
+
+Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (the Vercel
+integration injects both). Without them the cache is off and every search goes
+upstream, exactly as before.
+
+A cache miss and a cache outage are the same answer, so Redis being down never
+fails a search — it just stops saving calls.
+
+Coordinates are rounded to three decimals, about a 110m grid, because a phone's
+fix jitters between calls and an exact-coordinate key would never hit. The
+trade-off is that `distanceMeters` can be stale by up to that much; see the
+`ponytail:` note in `src/places/places.service.ts`.
+
+**Licence:** Foursquare caps caching of Places Data by account type, and their
+agreement also requires "Powered by Foursquare" attribution on every screen
+where that data appears. `PLACES_CACHE_TTL_SECONDS` defaults to one hour for
+that reason — check what this account's agreement allows before raising it.
+
 ## Deploying to Vercel
 
 1. Push this repository to GitHub.
