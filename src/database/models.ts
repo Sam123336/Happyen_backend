@@ -110,6 +110,58 @@ export class Venue extends Model<
   declare updatedAt: CreationOptional<Date>;
 }
 
+/** A sign-in code in flight. Holds the HMAC of the code, never the code. */
+export class Otp extends Model<
+  InferAttributes<Otp>,
+  InferCreationAttributes<Otp>
+> {
+  declare id: CreationOptional<string>;
+  declare phoneE164: string;
+  declare codeHash: string;
+  declare expiresAt: Date;
+  declare attemptCount: CreationOptional<number>;
+  declare consumedAt: CreationOptional<Date | null>;
+  declare createdAt: CreationOptional<Date>;
+  declare updatedAt: CreationOptional<Date>;
+}
+
+/**
+ * The permanent record of a code being used. Outlives the `otps` row, which is
+ * purged once it expires, so `phoneE164` is kept here rather than joined.
+ */
+export class OtpVerification extends Model<
+  InferAttributes<OtpVerification>,
+  InferCreationAttributes<OtpVerification>
+> {
+  declare id: CreationOptional<string>;
+  /** Null when the code was verified at sign-up, before an account existed. */
+  declare userId: CreationOptional<string | null>;
+  declare otpId: CreationOptional<string | null>;
+  declare phoneE164: string;
+  declare verifiedAt: CreationOptional<Date>;
+  declare ip: CreationOptional<string | null>;
+  declare createdAt: CreationOptional<Date>;
+  declare updatedAt: CreationOptional<Date>;
+}
+
+/**
+ * An opaque refresh token, stored only as a digest. `replacedById` is the
+ * rotation chain: a token presented after it was replaced has been stolen.
+ */
+export class RefreshToken extends Model<
+  InferAttributes<RefreshToken>,
+  InferCreationAttributes<RefreshToken>
+> {
+  declare id: CreationOptional<string>;
+  declare userId: string;
+  declare tokenHash: string;
+  declare expiresAt: Date;
+  declare revokedAt: CreationOptional<Date | null>;
+  declare replacedById: CreationOptional<string | null>;
+  declare createdAt: CreationOptional<Date>;
+  declare updatedAt: CreationOptional<Date>;
+}
+
 /** The canonical concept: "Bangalore Comedy Night", not one of its nights. */
 export class Event extends Model<
   InferAttributes<Event>,
@@ -220,6 +272,53 @@ export function initModels(sequelize: Sequelize): void {
       },
     },
     { ...table, tableName: 'user_identities' },
+  );
+
+  Otp.init(
+    {
+      id: uuid,
+      phoneE164: { allowNull: false, type: DataTypes.STRING(20) },
+      codeHash: { allowNull: false, type: DataTypes.TEXT },
+      expiresAt: { allowNull: false, type: DataTypes.DATE },
+      attemptCount: {
+        allowNull: false,
+        defaultValue: 0,
+        type: DataTypes.INTEGER,
+      },
+      consumedAt: DataTypes.DATE,
+      ...stamps,
+    },
+    { ...table, tableName: 'otps' },
+  );
+
+  OtpVerification.init(
+    {
+      id: uuid,
+      userId: DataTypes.UUID,
+      otpId: DataTypes.UUID,
+      phoneE164: { allowNull: false, type: DataTypes.STRING(20) },
+      verifiedAt: {
+        allowNull: false,
+        defaultValue: DataTypes.NOW,
+        type: DataTypes.DATE,
+      },
+      ip: DataTypes.INET,
+      ...stamps,
+    },
+    { ...table, tableName: 'otp_verifications' },
+  );
+
+  RefreshToken.init(
+    {
+      id: uuid,
+      userId: { allowNull: false, type: DataTypes.UUID },
+      tokenHash: { allowNull: false, type: DataTypes.TEXT },
+      expiresAt: { allowNull: false, type: DataTypes.DATE },
+      revokedAt: DataTypes.DATE,
+      replacedById: DataTypes.UUID,
+      ...stamps,
+    },
+    { ...table, tableName: 'refresh_tokens' },
   );
 
   Profile.init(

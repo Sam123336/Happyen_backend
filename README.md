@@ -185,6 +185,157 @@ is storage rather than caching, and their agreement limits both. The `venues`
 row is provenance only — Happyen's row stays the source of truth — but confirm
 what this account's agreement allows before leaning on it.
 
+## Sign-in codes
+
+Phone sign-in stays Supabase's: it generates the code, verifies it and issues
+the session. Only _delivery_ is ours, through Supabase's Send SMS Hook, so
+nothing in this repository stores an OTP or can mint a token.
+
+`api/auth/send-sms.js` receives `{ user: { phone }, sms: { otp } }` and sends it
+with Fast2SMS on `route: "otp"` — no DLT registration, no sender id, no
+template. That route reaches **Indian numbers only**, and a number it cannot
+deliver to is refused rather than accepted and dropped.
+
+Point the hook at `https://<domain>/api/auth/send-sms` in the Supabase
+dashboard, then set `SEND_SMS_HOOK_SECRET` to the `v1,whsec_<base64>` value it
+gives you and `FAST2SMS_API_KEY` to the Fast2SMS key.
+
+The signature is not optional. This endpoint spends money on every call, so an
+unauthenticated one is a stranger's spending account. Requests are verified
+with Standard Webhooks — HMAC-SHA256 over `{id}.{timestamp}.{raw body}` — and
+the handler refuses everything when the secret is unset, the way the cron
+endpoints do. The check runs against the **raw** bytes, which is why this is a
+standalone function rather than a Nest route: a parsed and re-serialised body
+no longer matches its own signature. Timestamps outside five minutes are
+rejected so a captured request cannot be replayed.
+
+Two details worth keeping: Fast2SMS answers `200` with `"return": false` on a
+rejected send, so the status alone would report a code that never left, and a
+failure here returns 500 so Supabase surfaces it rather than leaving someone
+waiting for a message that is not coming. The code itself is never logged.
+
+Swapping to WhatsApp later is a change of sender class behind this same hook,
+not a change to authentication.
+
+## Sign-in codes Happyen issues itself
+
+`src/auth/otp/` holds the self-owned phone flow, alongside the Supabase one.
+Three pieces: the `otp_challenges` table, `OtpService`, and
+`SessionTokenService`.
+
+### The code
+
+Generated with `crypto.randomInt`, which is the CSPRNG and uniform over the
+range. It is **not** derived from a clock. A timestamp gives uniqueness, not
+unpredictability: the caller chooses when a code is minted, so a time-derived
+code has a few thousand candidates instead of a million, and the attacker is
+the one pressing "send".
+
+Security is four properties together, none optional:
+
+| Property       | How                                                 |
+| -------------- | --------------------------------------------------- |
+| Unpredictable  | `randomInt`, never `Math.random()` or `% 1_000_000` |
+| Short-lived    | `expires_at`, five minutes                          |
+| Single-use     | `consumed_at` claimed atomically                    |
+| Attempt-capped | five tries, then the row is burned                  |
+
+The code is never stored. `code_hash` is an HMAC keyed with `OTP_HASH_SECRET`
+and bound to the number, so a hash lifted from one row cannot be replayed
+against another. A bare hash would be theatre — six digits is a million
+candidates and reverses instantly offline; keyed, it does not reverse at all.
+
+Two tables, because their lifetimes differ. `otps` is the code in flight and is
+disposable — `purge` deletes it once it expires. `otp_verifications` is the
+permanent record of a code being used, and has to outlive it, which is why
+`otp_id` is `ON DELETE SET NULL` rather than cascading and why the number is
+copied onto the row. A purged code leaves its history intact, with the link
+gone and the record readable on its own. There is a test for exactly that.
+
+What is _not_ a second table is the mapping from a number to an account:
+`user_identities` already holds `phone_e164` alongside `user_id`, and a second
+copy would be two places that can disagree about who owns a number. That column
+had no index, so this migration adds one — resolving a verified number to its
+account is the step between the two tables here.
+
+`otp_verifications.user_id` is nullable on purpose: at sign-up a number proves
+itself before an account exists, and the row still records that it did.
+
+Issuing a new code retires the previous one, because two live codes double an
+attacker's odds for free. The single-use claim is
+`UPDATE ... WHERE consumed_at IS NULL`, so two simultaneous verifications
+cannot both succeed — there is a test that runs exactly that race.
+
+### The session token
+
+`SessionTokenService` signs **EdDSA (Ed25519)** with `jose`. Asymmetric rather
+than a shared HS256 secret, so only the issuing deployment holds the private
+key and anything else can verify without being able to mint — the property
+`SupabaseTokenVerifier` already has, kept rather than traded away. The
+verifying algorithm is pinned, so a token cannot arrive claiming `alg: none`.
+
+**These are signed, not encrypted.** Signing proves the token came from here
+and was not altered; it does not hide anything. Anyone holding the token can
+base64-decode its claims. That is why the only claim is the user id, and there
+is a test asserting the payload carries nothing else. Put nothing in a claim
+that a reader should not see. If the claims themselves must be opaque, that is
+JWE rather than JWS and a different change.
+
+### The endpoints
+
+| Route                       | Does                                                  |
+| --------------------------- | ----------------------------------------------------- |
+| `POST /v1/auth/otp/request` | Issues a code and sends it. 202.                      |
+| `POST /v1/auth/otp/verify`  | Checks it, provisions the account, returns a session. |
+| `POST /v1/auth/otp/refresh` | Rotates the refresh token, returns a new pair.        |
+| `POST /v1/auth/otp/logout`  | Revokes one device's refresh token. 204.              |
+
+`request` answers the same whether or not the number has an account, so it
+cannot be used to ask who is registered. It is capped at three codes per number
+per fifteen minutes, counted from the `otps` table itself rather than a
+separate counter that could fail on its own — every send costs money, so this
+endpoint is a spending endpoint. A send that fails discards its code, because a
+message nobody received must not spend one of the caller's three tries.
+
+`verify` provisions against `issuer: 'happyen'` with the number as the subject,
+so the same phone always reaches the same account, and the existing
+`user_identities` row is what links them.
+
+### Refresh tokens
+
+Opaque random strings, not JWTs: the one thing a refresh token must support is
+revocation, and a self-contained token cannot be revoked without a table
+anyway. Only the SHA-256 is stored — a plain digest here, unlike the OTP's
+keyed HMAC, because 256 bits of entropy cannot be brute-forced the way six
+digits can.
+
+Every refresh burns the token it was given and returns a new one. That is what
+makes theft detectable: the thief and the real client cannot both spend the
+same token, so whichever comes second presents one already replaced. The
+response is to revoke the **whole family**, because at that point the two
+copies are indistinguishable.
+
+A token that was revoked by sign-out is _not_ treated as theft — it has no
+successor, so it is simply dead. Only a token with `replaced_by_id` set counts
+as reuse. Without that distinction a stale client retrying after sign-out would
+end every other session, which is exactly what the test for it caught.
+
+Rotation is claimed conditionally (`WHERE revoked_at IS NULL`), so two
+simultaneous refreshes cannot both mint a successor.
+
+### Two issuers, one guard
+
+`CompositeTokenVerifier` tries Happyen's own token first, against a local key,
+then Supabase's. Supabase sessions keep working unchanged. A Happyen token
+names its account directly, so `ExternalIdentity.userId` is set and
+`findByIdentity` skips the issuer-and-subject lookup.
+
+### Degrading rather than refusing to boot
+
+`OTP_HASH_SECRET` and `FAST2SMS_API_KEY` missing gives 503 on these routes
+only. The application still starts and events, places and profile are
+unaffected — configuration for sending codes has nothing to do with them.
+
 ## Deploying to Vercel
 
 1. Push this repository to GitHub.

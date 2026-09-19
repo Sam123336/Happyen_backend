@@ -14,6 +14,8 @@ describe('parseEnvironment', () => {
       LOG_LEVEL: 'info',
       PLACES_CACHE_TTL_SECONDS: 3600,
       PORT: 3000,
+      SESSION_JWT_AUDIENCE: 'happyen-mobile',
+      SESSION_JWT_ISSUER: 'https://api.happyen.app',
     });
   });
 

@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+/** Accepts a PEM as written, or base64 of one, which survives an env file. */
+function toPem(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (value.includes('-----BEGIN')) return value;
+  return Buffer.from(value, 'base64').toString('utf8');
+}
+
 const environmentSchema = z.object({
   /**
    * Pooled connection string. On Supabase this is the Supavisor transaction
@@ -28,6 +35,36 @@ const environmentSchema = z.object({
    * places-api.foursquare.com; this must be a service key.
    */
   FOURSQUARE_API_KEY: z.string().min(1).optional(),
+  /**
+   * Fast2SMS key for delivering the Supabase-generated sign-in code. Route
+   * `otp` needs no DLT registration and no sender id, and is India-only.
+   */
+  FAST2SMS_API_KEY: z.string().min(1).optional(),
+  /**
+   * Standard Webhooks secret for the Send SMS Hook, `v1,whsec_<base64>`.
+   * Without it the hook refuses every call: an endpoint that sends SMS on
+   * demand is an endpoint that spends money on demand.
+   */
+  SEND_SMS_HOOK_SECRET: z.string().min(1).optional(),
+  /**
+   * Pepper for the OTP HMAC. Six digits is a million candidates, so a bare
+   * hash of a leaked table falls in seconds; keyed, it does not fall at all.
+   * Rotating this invalidates every code in flight, which is harmless.
+   */
+  OTP_HASH_SECRET: z.string().min(16).optional(),
+  /**
+   * Ed25519 keys for sessions Happyen issues itself. Only the signing path
+   * needs the private half, so a deployment given just the public key can
+   * verify and still cannot mint.
+   *
+   * A PEM is accepted directly, but it carries newlines that env files handle
+   * badly, so base64 of the PEM is accepted too and is the easier thing to
+   * paste.
+   */
+  SESSION_JWT_PRIVATE_KEY: z.string().min(1).optional().transform(toPem),
+  SESSION_JWT_PUBLIC_KEY: z.string().min(1).optional().transform(toPem),
+  SESSION_JWT_ISSUER: z.string().url().default('https://api.happyen.app'),
+  SESSION_JWT_AUDIENCE: z.string().min(1).default('happyen-mobile'),
   /**
    * Upstash Redis over REST, injected by the Vercel integration. Both are
    * needed or the places cache stays off and every search goes upstream.

@@ -32,6 +32,12 @@ export class UserRepository {
   public async findByIdentity(
     identity: ExternalIdentity,
   ): Promise<UserProfileView | null> {
+    // A Happyen token names its account directly; only an external identity
+    // has to be resolved through the issuer and subject pair.
+    if (identity.userId !== undefined) {
+      return this.findByUserId(identity.userId);
+    }
+
     const found = await UserIdentity.findOne({
       attributes: ['userId'],
       where: { issuer: identity.issuer, subject: identity.subject },
