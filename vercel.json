@@ -19,9 +19,6 @@
           "topic": "venue-candidates"
         }
       ]
-    },
-    "api/auth/send-sms.js": {
-      "maxDuration": 15
     }
   },
   "crons": [

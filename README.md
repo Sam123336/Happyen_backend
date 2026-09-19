@@ -185,38 +185,6 @@ is storage rather than caching, and their agreement limits both. The `venues`
 row is provenance only — Happyen's row stays the source of truth — but confirm
 what this account's agreement allows before leaning on it.
 
-## Sign-in codes
-
-Phone sign-in stays Supabase's: it generates the code, verifies it and issues
-the session. Only _delivery_ is ours, through Supabase's Send SMS Hook, so
-nothing in this repository stores an OTP or can mint a token.
-
-`api/auth/send-sms.js` receives `{ user: { phone }, sms: { otp } }` and sends it
-with Fast2SMS on `route: "otp"` — no DLT registration, no sender id, no
-template. That route reaches **Indian numbers only**, and a number it cannot
-deliver to is refused rather than accepted and dropped.
-
-Point the hook at `https://<domain>/api/auth/send-sms` in the Supabase
-dashboard, then set `SEND_SMS_HOOK_SECRET` to the `v1,whsec_<base64>` value it
-gives you and `FAST2SMS_API_KEY` to the Fast2SMS key.
-
-The signature is not optional. This endpoint spends money on every call, so an
-unauthenticated one is a stranger's spending account. Requests are verified
-with Standard Webhooks — HMAC-SHA256 over `{id}.{timestamp}.{raw body}` — and
-the handler refuses everything when the secret is unset, the way the cron
-endpoints do. The check runs against the **raw** bytes, which is why this is a
-standalone function rather than a Nest route: a parsed and re-serialised body
-no longer matches its own signature. Timestamps outside five minutes are
-rejected so a captured request cannot be replayed.
-
-Two details worth keeping: Fast2SMS answers `200` with `"return": false` on a
-rejected send, so the status alone would report a code that never left, and a
-failure here returns 500 so Supabase surfaces it rather than leaving someone
-waiting for a message that is not coming. The code itself is never logged.
-
-Swapping to WhatsApp later is a change of sender class behind this same hook,
-not a change to authentication.
-
 ## Sign-in codes Happyen issues itself
 
 `src/auth/otp/` holds the self-owned phone flow, alongside the Supabase one.
@@ -322,6 +290,30 @@ end every other session, which is exactly what the test for it caught.
 
 Rotation is claimed conditionally (`WHERE revoked_at IS NULL`), so two
 simultaneous refreshes cannot both mint a successor.
+
+### Where the signing keys come from
+
+Nowhere — you generate them. There is no provider and no package involved; the
+private half of an Ed25519 keypair _is_ the signing key.
+
+```bash
+openssl genpkey -algorithm ed25519 -out key.pem
+openssl pkey -in key.pem -pubout -out key.pub.pem
+base64 -i key.pem && base64 -i key.pub.pem
+```
+
+Base64 of the PEM goes into `SESSION_JWT_PRIVATE_KEY` and
+`SESSION_JWT_PUBLIC_KEY`; the config accepts either that or the raw PEM, since
+a PEM's newlines do not survive an env file intact.
+
+**A keypair per environment, never shared.** The key is the only thing deciding
+which deployment a token belongs to, so one key across UAT and production would
+make a UAT token valid in production. The issuer differs too, and both are
+checked on verify. Rotating a key signs everyone in that environment out, which
+is the correct behaviour for a compromised key.
+
+On Vercel these are project environment variables, not files. Only a deployment
+that issues tokens needs the private half.
 
 ### Two issuers, one guard
 

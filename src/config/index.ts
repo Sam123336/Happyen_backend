@@ -41,12 +41,6 @@ const environmentSchema = z.object({
    */
   FAST2SMS_API_KEY: z.string().min(1).optional(),
   /**
-   * Standard Webhooks secret for the Send SMS Hook, `v1,whsec_<base64>`.
-   * Without it the hook refuses every call: an endpoint that sends SMS on
-   * demand is an endpoint that spends money on demand.
-   */
-  SEND_SMS_HOOK_SECRET: z.string().min(1).optional(),
-  /**
    * Pepper for the OTP HMAC. Six digits is a million candidates, so a bare
    * hash of a leaked table falls in seconds; keyed, it does not fall at all.
    * Rotating this invalidates every code in flight, which is harmless.
