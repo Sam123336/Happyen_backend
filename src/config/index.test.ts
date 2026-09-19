@@ -10,6 +10,7 @@ describe('parseEnvironment', () => {
       }),
     ).toEqual({
       DATABASE_URL: 'postgresql://happyn:happyn@localhost:55432/happyn',
+      FAST2SMS_ROUTE: 'otp',
       HAPPYN_ENV: 'local',
       LOG_LEVEL: 'info',
       PLACES_CACHE_TTL_SECONDS: 3600,
